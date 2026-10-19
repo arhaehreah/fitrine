@@ -2,11 +2,25 @@
 #import "Core/SGCore.h"
 #import "Settings/SGModPage.h"
 #import "Lyrics.h"
+#import "LyricsStore.h"
+#import "Settings/SGPageStyle.h"
 #import "Shared/LocalFiles/LocalLyrics.h"
 #import "Shared/LockScreenLyrics/LockScreenLyrics.h"
 #import "Shared/LyricsSources/LyricsSources.h"
 
 SGModSection *SGLyricsSourcesSection(BOOL namingSource) {
+    SGModRow *offline = SGSwitchRow(@"Keep lyrics for offline listening",
+        @"Saved lyrics play without a connection.", SGKeyLyricsOffline);
+    SGModRow *deleteSaved = SGActionRow(@"Delete saved lyrics", @"None", nil);
+    __weak SGModRow *weakDelete = deleteSaved;
+    void (^showSize)(unsigned long long) = ^(unsigned long long bytes) {
+        weakDelete.subtitle = bytes ? [NSByteCountFormatter stringFromByteCount:(long long)bytes countStyle:NSByteCountFormatterCountStyleFile]
+            : @"None";
+        UIViewController *top = SGTopController();
+        if ([top isKindOfClass:SGModPage.class]) [((SGModPage *)top).tableView reloadData];
+    };
+    SGLyricsStoreSize(showSize);
+    deleteSaved.action = ^{ SGLyricsStoreDeleteAll(showSize); };
     SGModRow *sources = SGPageRow(@"Sources", ^UIViewController *{ return SGLyricsSourcesPage(); });
     sources.value = ^NSString *{
         // The first one asked and how many follow it, short enough to sit beside the title.
@@ -21,7 +35,7 @@ SGModSection *SGLyricsSourcesSection(BOOL namingSource) {
         return count ? @(count).stringValue : @"None";
     };
     SGModRow *words = SGOptionRow(@"Prefer word-by-word timing", @"Asks down the order past lines timed by the line", SGKeyLyricsPreferWordTiming);
-    NSMutableArray<SGModRow *> *rows = [NSMutableArray arrayWithObjects:sources, words, imported,
+    NSMutableArray<SGModRow *> *rows = [NSMutableArray arrayWithObjects:sources, words, imported, offline, deleteSaved,
         SGSwitchRow(@"Lyrics for every track", @"Even where Spotify has none", SGKeyLyricsAllTracks), SGSpicyLyricsKeyRow(), nil];
     // Spicy Lyrics' terms ask for its credit wherever its lines show (Shared/LyricsSources/SpicyLyrics.m), so the switch
     // says so, or its credit under the lyrics reads as the switch not working (issue #20).
