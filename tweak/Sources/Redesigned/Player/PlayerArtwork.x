@@ -88,6 +88,10 @@ UIView *SGRPlayerCoverList(void) {
     return nil;
 }
 
+UIView *SGRPlayerShowingCover(void) {
+    return coverIn(showingTilt());
+}
+
 CGRect SGRPlayerCoverFrameIn(UIView *host) {
     UIView *tilt = showingTilt();
     UIView *cover = coverIn(tilt);

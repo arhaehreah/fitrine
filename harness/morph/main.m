@@ -30,6 +30,7 @@ void SGRPlayerSetCoverHidden(BOOL hidden) { sg_cover.alpha = hidden ? 0 : 1; }
 CGFloat SGRPlayerCoverScale(void) { return 1; }
 BOOL SGRPlayerMotionShowing(void) { return NO; }
 id SGRPlayerField(void) { return nil; }
+BOOL SGRPlayerBackdropShowing(void) { return NO; }
 UIImage *SGRNowPlayingArtwork(NSString **uri, NSString **identity) { return sg_art; }
 const CGFloat SGRRadiusArtwork = 12;
 BOOL SGRReduceMotion(void) { return NO; }

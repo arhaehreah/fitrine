@@ -45,7 +45,19 @@ static NSArray<NSString *> *backgroundNotes(void) {
         @"The cover itself, blurred and slowly turning. It rests while a song is paused.",
         @"The song's Canvas or the album's moving cover, else Fluid. The player's ⋯ menu switches between this, Fluid and Visualizer.",
         @"The song's sound as gentle hills in the cover's colors, over Fluid held still. They settle while a song is paused.",
+        @"Pure black, nothing of the cover.",
+        @"A photo of your own, darkened so the words over it stay easy to read.",
     ];
+}
+
+// "Behind the player": the artwork's choices, black, or a photo, in that order.
+static NSArray<NSString *> *behindNames(void) {
+    return @[@"Artwork", @"Black", @"Your Photo"];
+}
+
+// The segment of an artwork's choice; none is lit under black or a photo.
+static NSInteger segmentOf(SGRPlayerBackgroundKind kind) {
+    return SGRPlayerBackgroundFromArtwork(kind) ? kind : UISegmentedControlNoSegment;
 }
 
 @interface SGRPlayerShowcase : UIView <SGPlayerStateObserver>
@@ -55,7 +67,7 @@ static NSArray<NSString *> *backgroundNotes(void) {
 
 @implementation SGRPlayerShowcase {
     SGRArtworkField *_field;
-    UIView *_motion, *_visualiser;
+    UIView *_motion, *_visualiser, *_backdrop;
     UIImageView *_cover;
     SGMarqueeLabel *_title, *_artist;
     UIView *_progress, *_progressFill;
@@ -152,7 +164,7 @@ static NSArray<NSString *> *backgroundNotes(void) {
     _artist.text = shown.artist ?: @"";
     _position = shown.current && state.duration > 0 ? MIN(1, MAX(0, state.position / state.duration)) : 0;
     // The clip covers the field, and the hills move over it, which then holds still, as in the player.
-    _field.motionHeld = state.isPaused || _motion != nil || _visualiser != nil;
+    _field.motionHeld = state.isPaused || _motion != nil || _visualiser != nil || _backdrop != nil;
     if (shown.current && SGRNowPlayingArtwork(NULL, NULL)) {
         [self artworkChanged];
     } else if (!shown.current && shown.artworkURL) {
@@ -190,18 +202,26 @@ static NSArray<NSString *> *backgroundNotes(void) {
         SGRPlayerShowcase *showcase = weakSelf;
         if (showcase.window && !showcase->_motion && SGRPlayerBackground() == SGRPlayerBackgroundAnimated) [showcase reloadBackgroundAnimated:YES];
     };
+    // Black or the photo lies over a field made as the artwork's last choice, as in the player.
+    SGRPlayerBackgroundKind look = SGRPlayerArtworkBackground();
     void (^apply)(void) = ^{
-        self->_field.flows = kind == SGRPlayerBackgroundColours;
-        self->_field.fluid = kind >= SGRPlayerBackgroundFluid;
+        self->_field.flows = look == SGRPlayerBackgroundColours;
+        self->_field.fluid = look >= SGRPlayerBackgroundFluid;
+        [self->_backdrop removeFromSuperview];
+        self->_backdrop = SGRPlayerBackdropPreview();
+        if (self->_backdrop) [self insertSubview:self->_backdrop aboveSubview:self->_field];
         [self->_motion removeFromSuperview];
         self->_motion = kind == SGRPlayerBackgroundAnimated ? SGRPlayerMotionPreview(arrived) : nil;
         if (self->_motion) [self insertSubview:self->_motion aboveSubview:self->_field];
         [self->_visualiser removeFromSuperview];
         self->_visualiser = kind == SGRPlayerBackgroundVisualiser ? SGRPlayerVisualiserPreview() : nil;
         if (self->_visualiser) [self insertSubview:self->_visualiser aboveSubview:self->_field];
-        self->_field.motionHeld = SGPlayerState().isPaused || self->_motion != nil || self->_visualiser != nil;
+        self->_field.motionHeld = SGPlayerState().isPaused || self->_motion != nil || self->_visualiser != nil || self->_backdrop != nil;
     };
-    self.accessibilityValue = [SGRPlayerBackgroundNames()[(NSUInteger)kind] stringByAppendingString:@" background"];
+    // Black or a photo is named from the "Behind the player" menu's choices, not the artwork's segments.
+    NSString *backgroundName = SGRPlayerBackgroundFromArtwork(kind) ? SGRPlayerBackgroundNames()[(NSUInteger)kind]
+                           : behindNames()[kind == SGRPlayerBackgroundBlack ? 1 : 2];
+    self.accessibilityValue = [backgroundName stringByAppendingString:@" background"];
     if (animated && self.window) {
         // A crossfade, which Reduce Motion keeps: nothing moves.
         [UIView transitionWithView:self duration:SGRCrossfade options:UIViewAnimationOptionTransitionCrossDissolve | UIViewAnimationOptionAllowAnimatedContent
@@ -222,6 +242,7 @@ static NSArray<NSString *> *backgroundNotes(void) {
     _field.backdropHeight = h;
     _motion.frame = bounds;
     _visualiser.frame = bounds;
+    _backdrop.frame = bounds;
 
     _cover.frame = CGRectMake(kCardPadding, h - kCardPadding - kCoverSide, kCoverSide, kCoverSide);
     CGFloat x = CGRectGetMaxX(_cover.frame) + 12, width = w - kCardPadding - x;
@@ -242,6 +263,7 @@ static NSArray<NSString *> *backgroundNotes(void) {
 @interface SGRPlayerPage : SGModPage
 @property (nonatomic, strong) SGRPlayerShowcase *showcase;
 @property (nonatomic, strong) UISegmentedControl *backgrounds;
+- (void)backgroundChanged;
 @end
 
 @implementation SGRPlayerPage {
@@ -302,7 +324,7 @@ static NSArray<NSString *> *backgroundNotes(void) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     // The player's ⋯ menu can switch Animated and Fluid while the page is away.
-    self.backgrounds.selectedSegmentIndex = SGRPlayerBackground();
+    self.backgrounds.selectedSegmentIndex = segmentOf(SGRPlayerBackground());
     [self showNote];
     [self.showcase reloadTrack];
     [self.showcase reloadBackgroundAnimated:NO];
@@ -310,9 +332,18 @@ static NSArray<NSString *> *backgroundNotes(void) {
 
 - (void)backgroundPicked {
     SGSetInt(SGRKeyPlayerBackground, self.backgrounds.selectedSegmentIndex);
+    SGSetInt(SGRKeyPlayerArtworkBackground, self.backgrounds.selectedSegmentIndex);
+    [self backgroundChanged];
+}
+
+// The card, the segments, the note and the rows that follow the choice, after it changed here or in a row.
+- (void)backgroundChanged {
+    SGRPlayerBackgroundDidChange();
+    self.backgrounds.selectedSegmentIndex = segmentOf(SGRPlayerBackground());
     [self.showcase reloadBackgroundAnimated:YES];
     [self showNote];
     [self refreshVisibility];
+    [self.tableView reloadData];
 }
 
 @end
@@ -335,7 +366,7 @@ SGModRow *SGRLyricsHideRow(void) {
 UIViewController *SGRPlayerSettingsPage(NSArray *more) {
     SGRPlayerShowcase *showcase = [[SGRPlayerShowcase alloc] initWithFrame:CGRectMake(0, 0, 320, kCardMinHeight)];
     UISegmentedControl *backgrounds = [[UISegmentedControl alloc] initWithItems:SGRPlayerBackgroundNames()];
-    backgrounds.selectedSegmentIndex = SGRPlayerBackground();
+    backgrounds.selectedSegmentIndex = segmentOf(SGRPlayerBackground());
     backgrounds.accessibilityLabel = @"Background";
     backgrounds.apportionsSegmentWidthsByContent = YES;
 
@@ -343,6 +374,29 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
     lowData.visible = ^BOOL { return SGRPlayerBackground() == SGRPlayerBackgroundAnimated; };
     SGModRow *sources = SGMotionSourcesRow();
     sources.visible = lowData.visible;
+
+    // Black or a photo in place of the artwork; the photo is asked for the first time it is chosen.
+    __block __weak SGRPlayerPage *weakPlayerPage;
+    SGModRow *behind = SGMenuRow(@"Behind the Player", behindNames(), ^NSString *{
+        SGRPlayerBackgroundKind kind = SGRPlayerBackground();
+        return behindNames()[kind == SGRPlayerBackgroundBlack ? 1 : kind == SGRPlayerBackgroundPhoto ? 2 : 0];
+    }, ^(NSInteger index) {
+        SGRPlayerPage *page = weakPlayerPage;
+        if (index == 2 && !SGRPlayerHasPhoto()) {
+            SGRPlayerPickPhoto(page, ^(BOOL stored) {
+                if (stored) SGSetInt(SGRKeyPlayerBackground, SGRPlayerBackgroundPhoto);
+                [page backgroundChanged];
+            });
+            return;
+        }
+        SGSetInt(SGRKeyPlayerBackground, index == 1 ? SGRPlayerBackgroundBlack : index == 2 ? SGRPlayerBackgroundPhoto : SGRPlayerArtworkBackground());
+        [page backgroundChanged];
+    });
+    SGModRow *choosePhoto = SGActionRow(@"Choose Photo", nil, ^{
+        SGRPlayerPage *page = weakPlayerPage;
+        SGRPlayerPickPhoto(page, ^(BOOL stored) { [page backgroundChanged]; });
+    });
+    choosePhoto.visible = ^BOOL { return SGRPlayerBackground() == SGRPlayerBackgroundPhoto; };
 
     __block __weak UITableViewController *weakPage;
     SGModRow *reset = SGActionRow(@"Reset", nil, ^{
@@ -357,6 +411,7 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
     for (SGModRow *row in fluid) row.visible = ^BOOL { return SGRPlayerBackground() == SGRPlayerBackgroundFluid; };
 
     NSMutableArray<SGModSection *> *sections = [NSMutableArray arrayWithObjects:
+        SGSection(nil, @[behind, choosePhoto]),
         SGSection(nil, @[sources, lowData]),
         SGNotedSection(nil, fluid, @"Brightness above 100% can make white text harder to read. A paused song holds the "
                                    @"background still. Animated and Visualizer use these where they show Fluid."),
@@ -374,6 +429,7 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
     NSString *footer = @"Fluid, Animated and Visualizer change with the next song. Still, Colors, Hide on the player and Spotify's icons apply after you restart Spotify.";
     SGRPlayerPage *page = [[SGRPlayerPage alloc] initWithTitle:@"Player" intro:nil sections:sections footer:footer];
     weakPage = page;
+    weakPlayerPage = page;
     page.showcase = showcase;
     page.backgrounds = backgrounds;
     [backgrounds addTarget:page action:@selector(backgroundPicked) forControlEvents:UIControlEventValueChanged];
