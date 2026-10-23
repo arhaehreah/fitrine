@@ -20,12 +20,15 @@
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
+#import "Redesigned/Kit/SGRPress.h"
 #import "Shared/Haptics/Haptics.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/SponsorBlock/SGSponsorBlockOverlay.h"
 #import "Player.h"
 
 static const CGFloat kSkipGlyphSize = 32, kPlayGlyphSize = 44;
+// The platter the Music app fades in behind a pressed transport glyph (SGRPress.h), about twice the glyph.
+static const CGFloat kSkipPlatter = 64, kPlayPlatter = 76;
 // A spinner that is still up this long after a state change is buffering, not a track starting.
 static const NSTimeInterval kSpinnerCheck = 0.6;
 
@@ -81,7 +84,7 @@ static void keepOnTop(UIView *view, UIView *host) {
 
 #pragma mark - previous and next
 
-static void skipGlyph(UIView *host, NSString *identifier, const void *findKey, NSString *symbol) {
+static void skipGlyph(UIView *host, NSString *identifier, const void *findKey, NSString *symbol, SGRPressOptions nudge) {
     UIView *button = SGRFindByIdentifier(host, identifier, findKey);
     UIView *content = button.subviews.firstObject;
     if (!content) {
@@ -95,6 +98,8 @@ static void skipGlyph(UIView *host, NSString *identifier, const void *findKey, N
         if (view != glyph && [view isKindOfClass:icon]) SGRPlayerVanish(view);
     });
     keepOnTop(glyph, content);
+    // The touches are the button's; the platter goes in with the glyph, under it.
+    SGRPressGlyph(button, glyph, content, kSkipPlatter, SGRPressScale | nudge);
 }
 
 #pragma mark - shuffle and repeat
@@ -302,6 +307,7 @@ void SGRPlayerPlayGlyphIn(UIView *host) {
     // Inside the button, over the disc it replaces, so it follows the button's own press.
     SGRGlyphView *glyph = glyphFor(play, symbolFor(state.isPaused), kPlayGlyphSize);
     keepOnTop(glyph, button);
+    SGRPressGlyph(play, glyph, button, kPlayPlatter, SGRPressScale);
     sg_playView = play;
     sg_playButton = button;
     sg_playGlyph = glyph;
@@ -319,8 +325,8 @@ void SGRPlayerPlayGlyphIn(UIView *host) {
     // The unit lays out before its row does, and the glyphs are centered on the buttons in it.
     UIStackView *row = (UIStackView *)SGFindRemembered(host, &kRowKey, ^BOOL(UIView *v) { return SGIsRow(v); });
     [row layoutIfNeeded];
-    skipGlyph(host, @"SPTNowPlayingPreviousTrackButton", &kPreviousKey, @"backward.fill");
-    skipGlyph(host, @"SPTNowPlayingNextTrackButton", &kNextKey, @"forward.fill");
+    skipGlyph(host, @"SPTNowPlayingPreviousTrackButton", &kPreviousKey, @"backward.fill", SGRPressNudgeBack);
+    skipGlyph(host, @"SPTNowPlayingNextTrackButton", &kNextKey, @"forward.fill", SGRPressNudgeForward);
     SGRPlayerPlayGlyphIn(host);
     hideShuffleAndRepeat(host, row);
 }
@@ -518,6 +524,84 @@ static void watchSlider(UIView *host) {
     tap.slider = slider;
 }
 
+#pragma mark - scrubbing
+
+// While a finger scrubs, the Music app's bar grows thicker and the times under it turn white and step down
+// with it, and all of it goes back when the finger lifts. The track grows through the slider's own track
+// rect, about its middle, so the thumb and the place a tap seeks to stay where they were; only a real drag
+// does it, never the drag a tap to seek plays to the slider (seekTo sends events, it does not track).
+static const CGFloat kScrubTrackGrow = 1.75, kScrubTimeDrop = 3;
+static const NSUInteger kScrubUnitReach = 6;
+static char kScrubTakeKey, kScrubTakeLabelKey, kScrubRemainingKey, kScrubRemainingLabelKey, kScrubColorKey;
+static __weak UISlider *sg_scrubSlider;
+
+// The view a few levels up the slider that holds the times: the ordinary duration unit's or the AI DJ's.
+static UIView *timesAround(UISlider *slider) {
+    NSUInteger levels = 0;
+    for (UIView *v = slider.superview; v && levels < kScrubUnitReach; v = v.superview, levels++) {
+        if (SGRFindByIdentifier(v, @"now-playing-time-take-label", &kScrubTakeKey)) return v;
+    }
+    return nil;
+}
+
+// Spotify's color is kept on the label to go back to; a pass of Spotify's that paints its own over the white
+// meanwhile is painted over again (`animated` NO).
+static void brighten(UIView *view, BOOL on, BOOL animated) {
+    if (![view isKindOfClass:UILabel.class]) return;
+    UILabel *label = (UILabel *)view;
+    UIColor *kept = objc_getAssociatedObject(label, &kScrubColorKey);
+    UIColor *to = on ? SGRPrimary() : kept;
+    if (on && !kept && label.textColor) objc_setAssociatedObject(label, &kScrubColorKey, label.textColor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!on) objc_setAssociatedObject(label, &kScrubColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!to || [label.textColor isEqual:to]) return;
+    if (!animated || !label.window) {
+        label.textColor = to;
+        return;
+    }
+    [UIView transitionWithView:label duration:on ? 0.2 : SGRCrossfade
+        options:UIViewAnimationOptionTransitionCrossDissolve | UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
+        animations:^{ label.textColor = to; } completion:nil];
+}
+
+static void brightenTimes(UIView *unit, BOOL on, BOOL animated) {
+    brighten(SGRFindByIdentifier(unit, @"now-playing-time-take-label-internal", &kScrubTakeLabelKey), on, animated);
+    brighten(SGRFindByIdentifier(unit, @"now-playing-time-remaning-label-internal", &kScrubRemainingLabelKey), on, animated);
+}
+
+static void scrubLook(UISlider *slider, BOOL on) {
+    if (on) {
+        sg_scrubSlider = slider;
+    } else {
+        if (sg_scrubSlider != slider) return;
+        sg_scrubSlider = nil;
+    }
+    // The new track rect is laid out on the layout spring; under Reduce Motion the slider crossfades instead.
+    SGRAnimateLayout(slider, ^{
+        [slider setNeedsLayout];
+        [slider layoutIfNeeded];
+    }, nil);
+    UIView *unit = timesAround(slider);
+    if (!unit) return;
+    brightenTimes(unit, on, YES);
+    UIView *take = SGRFindByIdentifier(unit, @"now-playing-time-take-label", &kScrubTakeKey);
+    UIView *remaining = SGRFindByIdentifier(unit, @"now-playing-time-remaning-label", &kScrubRemainingKey);
+    CGAffineTransform drop = on && !SGRReduceMotion() ? CGAffineTransformMakeTranslation(0, kScrubTimeDrop) : CGAffineTransformIdentity;
+    SGRAnimate(SGRMotionPress, ^{
+        take.transform = drop;
+        remaining.transform = drop;
+    }, nil);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ SGLog(@"redesign player: a scrub thickens the bar, times %@", take ? @"brightened and lowered" : @"not found"); });
+}
+
+// Spotify writes the times as the thumb moves, which can bring its own color back.
+static void keepScrubLook(UIView *host) {
+    UISlider *slider = sg_scrubSlider;
+    if (!slider || (host && ![slider isDescendantOfView:host])) return;
+    UIView *unit = timesAround(slider);
+    if (unit) brightenTimes(unit, YES, NO);
+}
+
 %hook _TtCO17NowPlaying_ECMKit11ProgressBar6Slider
 - (void)layoutSubviews {
     %orig;
@@ -537,6 +621,41 @@ static void watchSlider(UIView *host) {
 - (BOOL)isTracking {
     return ((UISlider *)self == sg_seekSlider && seekHeld()) || %orig;
 }
+
+- (CGRect)trackRectForBounds:(CGRect)bounds {
+    CGRect track = %orig;
+    if ((UISlider *)self != sg_scrubSlider || track.size.height <= 0) return track;
+    CGFloat height = round(track.size.height * kScrubTrackGrow);
+    return CGRectMake(track.origin.x, CGRectGetMidY(track) - height / 2, track.size.width, height);
+}
+
+// PlayerScroll.x and Shared/Haptics/ControlHaptics.x hook the same tracking; all call through.
+- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL tracking = %orig;
+    if (tracking) scrubLook((UISlider *)self, YES);
+    return tracking;
+}
+
+- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL tracking = %orig;
+    if ((UISlider *)self == sg_scrubSlider) keepScrubLook(nil);
+    return tracking;
+}
+
+- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    %orig;
+    scrubLook((UISlider *)self, NO);
+}
+
+- (void)cancelTrackingWithEvent:(UIEvent *)event {
+    %orig;
+    scrubLook((UISlider *)self, NO);
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    if (!((UIView *)self).window) scrubLook((UISlider *)self, NO);
+}
 %end
 
 // The ordinary player's duration unit and the AI DJ's (DJMDurationElementsUnit) hold the same progress bar and times.
@@ -546,6 +665,7 @@ static void durationLaidOut(UIViewController *unit) {
     watchSlider(host);
     UILabel *taken = monospaced(host, @"now-playing-time-take-label-internal", &kTakeKey);
     monospaced(host, @"now-playing-time-remaning-label-internal", &kRemainingKey);
+    keepScrubLook(host);
     // Whether Spotify's font has digits of one width shows in the descriptor's feature settings.
     if (!taken) return;
     static dispatch_once_t once;

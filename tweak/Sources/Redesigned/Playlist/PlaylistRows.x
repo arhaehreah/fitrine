@@ -23,6 +23,7 @@
 // only the row below is a row.
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
+#import "Redesigned/Kit/SGRPress.h"
 #import "Playlist.h"
 
 // Under the text rather than the whole row, as the Music app draws it; the trailing end clears the page margin.
@@ -94,6 +95,8 @@ static UIView *rowIn(UIView *cell) {
 static BOOL applyRow(UIView *cell) {
     clearSurface(cell);
     UIView *row = rowIn(cell);
+    // The Music app's highlight under the finger (SGRPress.h), on the rows only: not the pills or a heading.
+    SGRPressRow(cell, row != nil);
     if (!row) return NO;
     clearSurface(row);
 
