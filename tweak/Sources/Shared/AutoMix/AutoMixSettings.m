@@ -84,9 +84,10 @@ UIViewController *SGAutoMixSettingsPage(void) {
         ^NSString *(double value) { return [NSString stringWithFormat:@"%ld s", lround(value)]; });
     blend.waitsOn = SGKeyAutoMix;
 
+    // The queue option is left out: the redesigned Playing Next sheet that drew the kind over it (PlayerQueue.m)
+    // is not part of this build, so nothing would read SGKeyAutoMixShowQueue.
     NSArray<SGModRow *> *player = @[
         playerOption(@"Transitions in the progress bar", SGKeyAutoMixShowProgress),
-        playerOption(@"Transitions in the queue", SGKeyAutoMixShowQueue),
         playerOption(@"Artwork moves with the mix", SGKeyAutoMixArtwork),
     ];
 
