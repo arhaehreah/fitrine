@@ -23,7 +23,10 @@ __weak UIView *sgr_playlistRoot = nil;
 
 NSString *const SGPlayerTransitionNotification = @"spotifyglass.playerTransition";
 NSString *const SGPlayerTransitionEndedNotification = @"spotifyglass.playerTransitionEnded";
-CFTimeInterval SGPlayerTransitionEnds(void) { return 0; }
+// No open or close runs, unless the automix scenario says one does until a time (SGRHarnessSetTransitionEnds).
+static CFTimeInterval sg_transitionEnds;
+CFTimeInterval SGPlayerTransitionEnds(void) { return sg_transitionEnds; }
+void SGRHarnessSetTransitionEnds(CFTimeInterval ends) { sg_transitionEnds = ends; }
 
 #pragma mark - Shared/Player/PlayerState.x
 
@@ -50,6 +53,20 @@ void SGAddPlayerStateObserver(id observer) {
     [sg_observers addObject:observer];
 }
 SPTPlayerState *SGPlayerState(void) { return sg_state; }
+
+// A state the harness made whole, reported as Spotify reports: every report, then the change.
+void SGRHarnessReport(SPTPlayerState *state) {
+    sg_state = state;
+    for (id<SGPlayerStateObserver> observer in sg_observers.allObjects) {
+        if ([observer respondsToSelector:@selector(playerStateDidReport:)]) [observer playerStateDidReport:state];
+        [observer playerStateDidChange:state];
+    }
+}
+
+void SGRHarnessClearTrack(void) {
+    sg_state = nil;
+    for (id<SGPlayerStateObserver> observer in sg_observers.allObjects) [observer playerStateDidChange:nil];
+}
 
 // `imageURI` is the xlarge picture as Spotify's metadata has it, spotify:image:<40 hex digits>, or nil for
 // a track whose metadata names none.

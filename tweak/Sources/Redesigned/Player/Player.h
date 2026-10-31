@@ -108,6 +108,9 @@ CGRect SGRPlayerArtworkAreaIn(UIView *host);
 // Hides the cover on screen and its shadow, or shows them again, for a stand-in to fly in its place
 // (PlayerMorph.x). Until NO, every cover laid out on screen is hidden too, the first open's included.
 void SGRPlayerSetCoverHidden(BOOL hidden);
+// Whether something besides the player's own artwork is holding the cover hidden (the morph's stand-in, or a
+// request made before any cover laid out): the AutoMix stage stands down while so (PlayerMix.x).
+BOOL SGRPlayerCoverHidden(void);
 
 #pragma mark - the lyrics in the player (PlayerLyrics.x)
 

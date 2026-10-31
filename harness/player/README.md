@@ -119,6 +119,26 @@ come late, out of order, or not at all.
   seeks for is seeked directly after a second, and that the slider lets go once the position is there. The
   log ends with `seek checks: n of 9 right -- PASS` or `FAIL`.
 
+- `automix` is AutoMix's transitions in the player (`PlayerMix.x`, with `PlayerControls.x` and
+  `PlayerArtwork.x`) and the AutoMix page's preview card (`Shared/AutoMix/AutoMixSettings.m`, `AutoMixPreview.m`), in
+  `automix-scenario.m`. `stubs-automix.m` stands in for AutoMix's facts (the scenario makes them and posts their
+  notification) and Spotify's three playback settings (posting their change as AutoMix.x's setter hooks do) and the
+  upcoming tracks; the player's position runs on the clock.
+  It checks the progress bar's bands on a mock of Spotify's slider (a known window from the knob at its start to the
+  bar's end and behind every part of the slider, flat at the track's thickness in a faint white and rounded only at
+  the bar's own end, unchanged by a seek, nothing for unknown times, an inverted window or no facts, the next song's
+  incoming window after a blend and gone once passed, none after a skip), the page's card
+  (off with a gray divider, beat-matched with its corners on the beats and rounded, crossfade at 1, 12 and 5 s with
+  equal fades, changed while away and in Spotify's page while it shows with no facts changing, its rows, no setting
+  written) and the stage over the cover (held back with the option off, its start, an edgeless cross-dissolve, done as
+  the window ends, handed back on a seek back, the player hidden, faded or moved off screen, a new next song, facts
+  whose times are no longer known or gone, another song, a pause and the player closing, back once it is still, the
+  next song's cover held and given up 3 s after the window, held back by the lyrics, an inactive app, the wide layout,
+  the player off screen, Reduce Motion, the AI DJ and unknown times, and no stage kept once the player is gone).
+  `automix-check.sh` runs it in a simulator of its own (`SHOTS=<dir>` keeps the states it names); the log ends with
+  `automix checks: n of n right -- PASS` or `FAIL`. `automix-mutation-check.py` breaks a rule of each area (two for
+  the stage) in a copy of the sources and expects the check that guards it to say WRONG.
+
 `HARNESS_VOLUME=0` leaves out the volume row that the phone has and the tree does not.
 
 A screen recording is the way to see a move:

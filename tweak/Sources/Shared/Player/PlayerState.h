@@ -25,5 +25,12 @@ NSString *SGURIString(id uri);
 void SGAddPlayerStateObserver(id<SGPlayerStateObserver> observer);
 // The last state reported, nil before the player has reported one.
 SPTPlayerState *SGPlayerState(void);
+// The first `limit` tracks to come after `state`'s playing track, nearest first: the state's `future`
+// entries that are SPTPlayerTracks with a title and a URI. Main thread. (AutoMix's next-song cover.)
+NSArray<SPTPlayerTrack *> *SGPlayerUpcomingTracks(SPTPlayerState *state, NSUInteger limit);
+// Main thread. NO also before Connect has reported its playback location.
+BOOL SGPlayerPlaybackIsLocal(void);
+// Main thread, object/userInfo nil; emitted only when the local-playback fact changes.
+FOUNDATION_EXPORT NSNotificationName const SGPlayerPlaybackLocationDidChangeNotification;
 // The SPTEsperantoPlayer the mod observes, nil until the app has added its first observer.
 id SGPlayer(void);

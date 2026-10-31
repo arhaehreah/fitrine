@@ -33,6 +33,22 @@
 //              the hills moving, blurred behind the lyrics, settling and stopping on a pause, back on play,
 //              and the ⋯ menu's switch to Fluid and back; the log ends with visualizer checks n of m right
 //              -- PASS or FAIL
+//     autoviz  Animated with "Visualizer when there's no clip": nothing while a lookup is out, the Visualizer
+//              once it found no clip, down for a track change, a late clip, Low Power Mode, the full-screen cover
+//              switch (each switches the other off), Fluid and black, and off again; needs HARNESS_CANVAS_FILE (an
+//              mp4 taller than wide) for the late clip; the log ends with autoviz checks n of m right -- PASS or FAIL
+//     shuffle  Shuffle styles: one pick per new track while the Visualizer is on screen (as the background, then as
+//              the stand-in for a missing clip), none while hidden or for the same track, the user's own style back
+//              when it is switched off; the log ends with shuffle checks n of m right -- PASS or FAIL
+//     heat     Ignore heat warnings: the stand-down for each thermal state with and without it, the hills stopping and
+//              moving on the switch, Low Power Mode still stopping them, and the stand-in for a missing clip; the log
+//              ends with heat checks n of m right -- PASS or FAIL
+//     options  the Player page's Header glass and Music app icons switched off and on with the player open, in it and
+//              the AI DJ's, then Fluid's Grain at 0, 100 and 200% on Smooth and on Light; the log ends with options
+//              checks n of m right -- PASS or FAIL
+//     renderer the switch from Smooth to Light, read 0.2 to 4 s after it, five times; renderer checks n of m right
+//     automix  AutoMix's transitions in the progress bar, the queue and the cover, and the AutoMix page's preview
+//              (automix-scenario.m); automix checks n of m right -- PASS or FAIL, and the app exits with it
 // HARNESS_VOLUME=0 leaves out the volume row the phone has (trees/clean/player/01.txt has none).
 #import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
@@ -86,6 +102,10 @@ static void serve(NSString *imageURI, UIImage *image, NSTimeInterval delay, BOOL
     picture.fails = fails;
     sg_pictures[[imageURI substringFromIndex:imageURI.length - 24]] = picture;
 }
+
+// For the automix scenario (automix-scenario.m).
+void SGRHarnessServe(NSString *imageURI, UIImage *image) { serve(imageURI, image, 0, NO); }
+void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIView *tilt);
 
 @interface SGRHarnessPictureServer : NSURLProtocol
 @end
@@ -622,6 +642,7 @@ static void loadLyrics(void) {
     else if ([scenario() isEqualToString:@"seek"]) [self runSeekChecks];
     else if ([scenario() isEqualToString:@"visualiser"]) [self runVisualiserChecks];
     else if ([scenario() isEqualToString:@"header"]) [self runHeaderChecks];
+    else if ([scenario() isEqualToString:@"automix"]) SGRHarnessRunAutoMix(self.window, _units[2], _tilt);
     // Opened, closed and opened again, so a screenshot can be taken of each state and of the move itself.
     else for (NSNumber *at in @[@2, @6, @10]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(at.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -1843,6 +1864,15 @@ __attribute__((constructor(101))) static void sgr_harnessDefaults(void) {
     }
     // The shared session the catalog asks with.
     if ([scenario() isEqualToString:@"catalog"]) [NSURLProtocol registerClass:SGRHarnessPictureServer.class];
+    // automix: Fluid behind the player, AutoMix and its three player options at their standard (all off) until the
+    // scenario turns them on, so it starts from what a user who never opened the page has.
+    if ([scenario() isEqualToString:@"automix"]) {
+        NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
+        [store setInteger:SGRPlayerBackgroundFluid forKey:@"spotifyglass.redesign.player.background"];
+        for (NSString *key in @[@"spotifyglass.automix", @"spotifyglass.automix.style", @"spotifyglass.automix.show-progress",
+                                @"spotifyglass.automix.show-queue", @"spotifyglass.automix.artwork"]) [store removeObjectForKey:key];
+        [NSURLProtocol registerClass:SGRHarnessPictureServer.class];
+    }
     if ([scenario() isEqualToString:@"motion"] || [scenario() isEqualToString:@"settings"]) {
         [NSUserDefaults.standardUserDefaults setInteger:3 forKey:@"spotifyglass.redesign.player.background"];
         setenv("HARNESS_CANVAS", "https://canvas.harness/clip.mp4", 1);

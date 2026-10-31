@@ -21,6 +21,14 @@ UIFont *SGCappedFont(UIFont *font, CGFloat largest) {
     return font.pointSize > largest ? [font fontWithSize:largest] : font;
 }
 
+UIFont *SGCategoryCappedFont(UIFontTextStyle style, UIFontWeight weight, UIContentSizeCategory largest) {
+    UIContentSizeCategory current = UIApplication.sharedApplication.preferredContentSizeCategory;
+    if (largest && UIContentSizeCategoryCompareToCategory(current, largest) == NSOrderedDescending) current = largest;
+    UITraitCollection *traits = [UITraitCollection traitCollectionWithPreferredContentSizeCategory:current];
+    CGFloat size = [UIFont preferredFontForTextStyle:style compatibleWithTraitCollection:traits].pointSize;
+    return [UIFont systemFontOfSize:size weight:weight];
+}
+
 BOOL SGAccessibilityTextSize(void) {
     return UIContentSizeCategoryIsAccessibilityCategory(UIApplication.sharedApplication.preferredContentSizeCategory);
 }

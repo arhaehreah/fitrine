@@ -25,6 +25,7 @@
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/SponsorBlock/SGSponsorBlockOverlay.h"
 #import "Player.h"
+#import "PlayerMix.h"
 
 static const CGFloat kSkipGlyphSize = 32, kPlayGlyphSize = 44;
 // The platter the Music app fades in behind a pressed transport glyph (SGRPress.h), about twice the glyph.
@@ -510,8 +511,11 @@ static void seekTo(UISlider *slider, CGFloat share) {
 }
 @end
 
+// The progress bar's slider in the duration unit (01.txt:224).
+static NSString *const kSliderID = @"SPTNowPlayingSliderV2";
+
 static void watchSlider(UIView *host) {
-    UISlider *slider = (UISlider *)SGRFindByIdentifier(host, @"SPTNowPlayingSliderV2", &kSliderKey);
+    UISlider *slider = (UISlider *)SGRFindByIdentifier(host, kSliderID, &kSliderKey);
     if (![slider isKindOfClass:UISlider.class]) return;
     SGRSeekTap *tap = objc_getAssociatedObject(host, &kSeekTapKey);
     if (!tap) {
@@ -606,6 +610,9 @@ static void keepScrubLook(UIView *host) {
 - (void)layoutSubviews {
     %orig;
     [SGSponsorBlockOverlay attachToSlider:(UIView *)self];
+    // AutoMix's transition bands behind the knob (PlayerMix.x), on the player's own bar only.
+    UISlider *slider = (UISlider *)self;
+    if ([slider.accessibilityIdentifier isEqualToString:kSliderID]) SGRPlayerMixSliderLaidOut(slider);
 }
 
 - (void)setHighlighted:(BOOL)highlighted {
