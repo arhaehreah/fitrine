@@ -84,7 +84,7 @@ static CGFloat screenRadius(void) {
     __weak UIView *_masked, *_stripPane;
     CGFloat _stripPaneAlpha;
     CGRect _card, _barArtwork, _barRest, _spotifyFrame;
-    CGFloat _cardRadius, _spotifyAlpha;
+    CGFloat _cardRadius, _barArtworkRadius, _spotifyAlpha;
     CGColorRef _overlayColor;
     BOOL _coverHidden;
     BOOL _tornDown;
@@ -173,7 +173,7 @@ static CGFloat screenRadius(void) {
     _barRest = barRest;
     _card = card;
     _cardRadius = radius;
-    _barArtwork = SGRNowPlayingArtworkFrameIn(container);
+    _barArtwork = SGRNowPlayingArtworkFrameIn(container, &_barArtworkRadius);
     _spotifyAlpha = overlay.alpha;
 
     _sheet = [[UIView alloc] initWithFrame:card];
@@ -290,7 +290,7 @@ static CGFloat screenRadius(void) {
                 to = CGRectOffset(to, -sheet.origin.x, -sheet.origin.y);
                 self->_cover.frame = CGRectOffset(lerpRect(from, to, t), sheet.origin.x, sheet.origin.y);
                 // The cover's corners are drawn under its paused shrink too.
-                self->_cover.layer.cornerRadius = lerp(from.size.width / 2, SGRRadiusArtwork * SGRPlayerCoverScale() * scale, t);
+                self->_cover.layer.cornerRadius = lerp(self->_barArtworkRadius, SGRRadiusArtwork * SGRPlayerCoverScale() * scale, t);
                 // Over an animated artwork the player's cover is hidden: the flown one fades out on the
                 // way there instead of landing on an empty slot.
                 self->_cover.alpha = SGRPlayerMotionShowing() ? 1 - ramp(0.6, 1, t) : 1;

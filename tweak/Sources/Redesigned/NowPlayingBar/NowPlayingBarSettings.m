@@ -17,10 +17,22 @@ NSArray<SGModRow *> *SGRNowPlayingBarRows(void) {
     expandOnUp.waitsOn = SGRKeyNavbarMinimize;
     SGModRow *inlineConnect = SGOptionRow(@"Device button", @"Kept on the bar between the tabs", SGRKeyBarInlineConnect);
     inlineConnect.waitsOn = SGRKeyNavbarMinimize;
+    SGModRow *inlineArtist = SGOptionRow(@"Artist under the title when minimized", @"A second line on the bar between the tabs, when it fits", SGRKeyBarInlineArtist);
+    inlineArtist.waitsOn = SGRKeyNavbarMinimize;
+    inlineArtist.changed = ^(BOOL on) { SGRNowPlayingBarFollowTabBar(); };
+    SGModRow *next = SGOptionRow(@"Next button", @"After play on the full now playing bar", SGRKeyBarNextButton);
+    next.changed = ^(BOOL on) { SGRNowPlayingBarFollowTabBar(); };
+    SGModRow *shape = SGChoiceRow(@"Artwork shape", nil, SGRKeyBarArtworkShape,
+                                  @[@"Rounded square", @"Circle"],
+                                  SGRBarArtworkShapeCircle);
+    shape.chosen = ^(NSInteger index) { SGRNowPlayingBarFollowTabBar(); };
     NSMutableArray<SGModRow *> *rows = [NSMutableArray arrayWithObject:minimize];
     if (expandOnUp) [rows addObject:expandOnUp];
     [rows addObjectsFromArray:@[
         inlineConnect,
+        inlineArtist,
+        next,
+        shape,
         SGHideRow(@"Hide the device button", @"On the full now playing bar", SGRHideBarConnect),
         // Spotify's own flag for the bar's save button, forced off: Spotify leaves the button out.
         SGKillRow(@"Hide the like button", @"ios-feature-nowplayingbar.add_button"),
