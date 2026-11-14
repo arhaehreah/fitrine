@@ -3,6 +3,7 @@
 #import "Settings/SGPageStyle.h"
 #import "SGRAccent.h"
 #import "SGRHeaderInfo.h"
+#import "Redesigned/Navigation/PageZoom.h"
 
 // The preset is read off the color stored, so the hooks keep the one key they read and a color set before
 // presets existed stays in effect: Apple Music's red reads as Apple Music, Spotify's own (-1) as Spotify, and
@@ -67,6 +68,9 @@ NSArray<SGModRow *> *SGRAppearanceRows(void) {
         SGWithSymbol(SGOptionRow(@"Plain checkmark", @"A saved song's tick without its circle, in the accent", SGRKeyPlainCheck), @"checkmark"),
         SGWithSymbol(SGSwitchRow(@"Full bleed covers", @"Album and playlist covers across the top. Off, a square cover; "
                                  @"an animated cover still fills the top", SGRKeyFullBleedCovers), @"photo"),
+        SGWithSymbol(SGOptionRow(@"Open pages from their artwork",
+            @"Albums and playlists grow from the cover you tap and return to it when you go back. Restart to apply",
+            SGRKeyPageZoom), @"arrow.up.left.and.arrow.down.right"),
     ] mutableCopy];
     // From iOS 26 the system draws the glass itself, so the switch gets no row.
     if (SGBelowiOS26()) [rows addObject:legacyGlassRow()];
