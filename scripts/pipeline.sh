@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the spotifyglass tweak and injects it (plus FLEX) into a decrypted Spotify IPA.
 #
-#   scripts/pipeline.sh <decrypted.ipa> [-o out.ipa] [--no-flex] [--pixie] [--install] [--name N] [--icon P.png] [--keep-watch]
+#   scripts/pipeline.sh <decrypted.ipa> [-o out.ipa] [--no-flex] [--require-pixie|--no-pixie] [--install] [--name N] [--icon P.png] [--keep-watch] [--no-plugins]
 #   (or: make build / make install)
 #
 # --keep-watch keeps Spotify's Apple Watch app, untested. Only its arm64 build is decrypted in an IPA dumped on an
@@ -39,7 +39,8 @@ while [ $# -gt 0 ]; do
     --name) NAME="$2"; shift 2 ;;
     --icon) ICON="$2"; shift 2 ;;
     --no-flex) WITH_FLEX=0; shift ;;
-    --pixie) PIXIE=1; shift ;;
+    --pixie|--require-pixie) PIXIE=1; shift ;;
+    --no-pixie) PIXIE=0; shift ;;
     --install) INSTALL=1; shift ;;
     --keep-watch) KEEP_WATCH=1; shift ;;
     -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
@@ -51,8 +52,12 @@ done
 
 # Fail closed before flag generation, tweak compilation or any output mutation.
 # This accepts the original decrypted IPA; the overlay later requires Vitrine too.
+MOD_VERSION="$(cat "$ROOT/version.txt" 2>/dev/null || true)"
+: "${MOD_VERSION:=0.0.0}"
 if [ "$PIXIE" = 1 ]; then
-  python3 -B "$ROOT/NativeDownloads/tools/build_vitrine_9190.py" "$IN" --check-input ${OUT:+--output "$OUT"}
+  PIXIE_NAME="$(python3 -B "$ROOT/NativeDownloads/tools/build_vitrine_9190.py" "$IN" --check-input --artifact-name "$MOD_VERSION" ${OUT:+--output "$OUT"})"
+else
+  python3 -B "$ROOT/NativeDownloads/tools/build_vitrine_9190.py" "$IN" --check-clean ${OUT:+--output "$OUT"}
 fi
 mkdir -p "$ROOT/out"
 
@@ -78,11 +83,7 @@ rm -f "$ROOT/out/.info.plist"
 # The name carries the mod's version, not Spotify's: it is the one the About page shows and the one
 # worth telling builds apart by. version.txt is read the way tweak/Makefile reads it, so a build from
 # a fork left behind by a release is named for the version it really is.
-MOD_VERSION="$(cat "$ROOT/version.txt" 2>/dev/null || true)"
-: "${MOD_VERSION:=0.0.0}"
-PIXIE_SUFFIX=""
-[ "$PIXIE" = 1 ] && PIXIE_SUFFIX="-pixie"
-OUT="${OUT:-$ROOT/out/vitrine-$MOD_VERSION$PIXIE_SUFFIX.ipa}"
+OUT="${OUT:-$ROOT/out/${PIXIE_NAME:-vitrine-$MOD_VERSION.ipa}}"
 echo "==> Vitrine $MOD_VERSION on Spotify $SPOTIFY_VERSION -> $OUT"
 
 if [ "$PIXIE" = 1 ]; then

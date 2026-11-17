@@ -17,6 +17,7 @@ subprocess.run([
     "xcrun", "clang", "-target", "arm64-apple-ios16.1-simulator", "-isysroot", sdk,
     "-fobjc-arc", "-std=gnu11", "-I" + str(root / "src"),
     str(root / "src/TracePlatform.m"), str(root / "tests/trace_platform_notifications.m"),
+    str(root / "tests/admitted_host.c"),
     "-framework", "UIKit", "-framework", "Foundation",
     "-framework", "AVFAudio", "-framework", "Network", "-o", str(binary),
 ], check=True, timeout=120)

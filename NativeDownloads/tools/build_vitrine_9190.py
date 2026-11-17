@@ -1,10 +1,12 @@
-"""Build the guarded SpotifyAudioProbe overlay for the supplied Vitrine 9.1.90 IPA."""
+"""Build the guarded SpotifyAudioProbe overlay for an exact supported Vitrine IPA."""
 import argparse
 import hashlib
 import json
 import os
 import plistlib
 import subprocess
+import struct
+import sys
 import tempfile
 from pathlib import Path
 from zipfile import ZipFile
@@ -13,51 +15,132 @@ from patch_imports import patch as patch_audio_imports
 from patch_native_restrictions import patch as patch_limits, guard_header, limits_header, layout
 from patch_key_request_mode import patch as patch_key_mode, key_header
 from patch_native_trace import patch as patch_native_trace,header as native_trace_header
+from pixie_target import V9190, PROFILES, select_profile, artifact_name
+from generate_target import generate_headers, validate_headers
+from companion_build import build_companion
+from signing_metadata import sign_preserving_entitlements
+from fix_sideload_dependencies import substrate_dependencies, pin_substrate_dependency
+from package_licenses import required_licenses, IPA_LICENSE_DIRECTORY
+from patch_native_restrictions import trampoline as quota_code, branch
+from patch_key_request_mode import trampoline as key_code, _offset
+from patch_native_trace import trampoline as trace_code
+from patch_layout import validate_allocations
+import patch_export
 
 ROOT = Path(__file__).resolve().parents[1]
-UUID = bytes.fromhex("fbce22c17e1b3e0d9be866ff9291943e")
-SOURCE_FILES = [
-    "AudioProbe.c", "Diagnostics.m", "Localization.m", "CaptureRing.c",
-    "AVAudioHooks.m", "SourceGraph.c", "OfflineFlags.m", "WireProto.m",
-    "OfflineConfig.m", "TrackJournal.m", "NativeErrorLog.m", "PlayerTrace.m",
-    "NativeOffline.m", "TrackDownload.m", "AudioProbeUI.m", "DownloadSettingsUI.m",
-    "EncodedAudio.m", "AlbumMetadata.m", "SupportLog.m", "DownloadCompatibility.m", "OfflineDevices.m",
-    "DiagnosticTrace.m", "TracePlatform.m", "NativeKeyTrace.m",
-]
+UUID = V9190.main_uuid
 
 
 def run(*command):
     subprocess.run([str(part) for part in command], check=True)
 
 
-def prepare_native(native):
+def verify_caves(data, profile):
+    allocations = [(p[2], trace_code(p, profile)) for p in profile.trace_points]
+    allocations += [(profile.caves[3], key_code(profile)),
+                    (profile.caves[4], quota_code(profile.caves[4], profile.setter))]
+    validate_allocations(data, [(address, code, profile.cave_capacity) for address, code in allocations]
+                         + patch_export.allocations(profile))
+
+
+def prepare_native(native, profile=V9190):
     """Validate every patch site on copies; never modify the supplied binary."""
-    if layout(native)[3] != UUID:
-        raise ValueError("Unsupported Spotify 9.1.90 executable UUID")
+    if layout(native)[3] != profile.main_uuid:
+        raise ValueError("Unsupported Spotify executable UUID")
     patched, audio = patch_audio_imports(native)
-    patched, limits = patch_limits(patched)
-    patched, key = patch_key_mode(patched, runtime_selectable=False)
-    patched, native_trace = patch_native_trace(patched)
+    verify_caves(patched, profile)
+    patched, limits = patch_limits(patched, profile)
+    patched, key = patch_key_mode(patched, runtime_selectable=False, profile=profile)
+    patched, native_trace = patch_native_trace(patched, profile)
     key["implementation"] = "verified static observation boundary restores fixed w2=0 before the original indirect call"
     key["configuration_source"] = "verified_static_trace_argument"
     return patched, audio, limits, key, native_trace
 
 
-def read_input(source, require_vitrine=True):
+def prepare_foundation(native, profile):
+    """Full static 1.4 patch image, validated before any packaging mutation."""
+    prepared = prepare_native(native, profile)
+    patched, exports = patch_export.patch(prepared[0], profile)
+    return patched, {"audio_imports": prepared[1], "native_limits": prepared[2],
+                     "key_mode": prepared[3], "trace": prepared[4], "export": exports}
+
+
+def reject_native_overlay(native, segments):
+    cursor = 32
+    for _ in range(struct.unpack_from("<I", native, 16)[0]):
+        command, length = struct.unpack_from("<II", native, cursor)
+        if command in (0xc, 0x18, 0x80000018, 0x8000001f, 0x80000023):
+            offset = struct.unpack_from("<I", native, cursor + 8)[0]
+            dependency = native[cursor+offset:cursor+length].split(b"\0")[0]
+            if dependency.rsplit(b"/", 1)[-1] == b"SpotifyAudioProbe.dylib":
+                raise ValueError("Existing Pixie dependency or partial overlay")
+        cursor += length
+    for symbol in (b"SAPTraceNativeBoundary\0", b"SAPCurrentKeyRequestMode\0", patch_export.SYMBOL):
+        if symbol in native:
+            raise ValueError("Existing Pixie trampoline or partial overlay")
+    # A removed dependency/dylib must not hide a completed instruction-only
+    # stage, even if somebody also changed the version or UUID metadata.
+    for profile in PROFILES:
+        fixed = bytearray(profile.request_bytes)
+        fixed[12:16] = bytes.fromhex("02008052")
+        markers = [(profile.window, bytes(fixed)),
+                   (profile.caves[4], quota_code(profile.caves[4], profile.setter)),
+                   (profile.setter, struct.pack("<I", branch(profile.setter, profile.caves[4])))]
+        markers += [(address, struct.pack("<I", branch(address, cave)))
+                    for _, address, cave, _, _ in profile.trace_points]
+        markers.append((profile.call_site, struct.pack("<I", branch(profile.call_site, profile.caves[3]))))
+        markers += [(entry, struct.pack("<I", branch(entry, cave)))
+                    for _, entry, cave, _, _ in profile.export_points]
+        for address, marker in markers:
+            at = next((fileoff + address - vm for _, vm, _, fileoff, size, _ in segments
+                       if vm <= address and address + len(marker) <= vm + size), None)
+            if at is not None and native[at:at+len(marker)] == marker:
+                raise ValueError("Existing Pixie instruction patch or partial overlay")
+
+
+def clean_input(archive, *, require_vitrine=False):
+    names = archive.namelist()
+    if len(names) != len(set(names)):
+        raise ValueError("Duplicate ZIP members are not supported")
+    if any(Path(name).name == "SpotifyAudioProbe.dylib" for name in names):
+        raise ValueError("Pixie is already installed")
+    if require_vitrine and "Payload/Spotify.app/Frameworks/spotifyglass.dylib" not in names:
+        raise ValueError("Expected Vitrine's spotifyglass.dylib")
+    info = plistlib.loads(archive.read("Payload/Spotify.app/Info.plist"))
+    if info.get("CFBundleExecutable") != "Spotify":
+        raise ValueError("Unexpected Spotify executable name")
+    if "NSExtension" in info:
+        raise ValueError("Pixie cannot package an app extension")
+    if not all(isinstance(info.get(key), str) and info[key] for key in
+               ("CFBundleShortVersionString", "CFBundleVersion")):
+        raise ValueError("Malformed Spotify version/build metadata")
+    native = archive.read("Payload/Spotify.app/Spotify")
+    shared = archive.read("Payload/Spotify.app/Frameworks/SpotifyShared.framework/SpotifyShared")
+    _, _, segments, main_uuid = layout(native)
+    shared_uuid = layout(shared)[3]
+    if main_uuid is None or shared_uuid is None:
+        raise ValueError("Missing Spotify image UUID")
+    reject_native_overlay(native, segments)
+    known_image = next((p for p in PROFILES if p.main_uuid == main_uuid), None)
+    prepared = prepare_native(native, known_image) if known_image else None
+    if known_image:
+        # Validate export sites even when the caller is excluding Pixie.
+        patch_export.patch(prepared[0], known_image)
+    return info, native, main_uuid, shared_uuid, prepared
+
+
+def input_profile(archive, *, require_enabled=True, jailbreak=False):
+    info, native, main_uuid, shared_uuid, _ = clean_input(archive)
+    profile = select_profile(info, main_uuid, shared_uuid,
+                             require_enabled=require_enabled, jailbreak=jailbreak)
+    return native, profile
+
+
+def read_input(source, require_vitrine=True, *, static_only=False):
     with ZipFile(source) as archive:
-        if len(archive.namelist()) != len(set(archive.namelist())):
-            raise ValueError("Duplicate ZIP members are not supported")
-        info = plistlib.loads(archive.read("Payload/Spotify.app/Info.plist"))
-        if info.get("CFBundleShortVersionString") != "9.1.90":
-            raise ValueError("Expected Spotify 9.1.90")
-        if info.get("CFBundleExecutable") != "Spotify":
-            raise ValueError("Unexpected Spotify executable name")
-        if require_vitrine and "Payload/Spotify.app/Frameworks/spotifyglass.dylib" not in archive.namelist():
-            raise ValueError("Expected Vitrine's spotifyglass.dylib")
-        if "Payload/Spotify.app/Frameworks/SpotifyAudioProbe.dylib" in archive.namelist():
-            raise ValueError("Pixie is already installed")
-        native = archive.read("Payload/Spotify.app/Spotify")
-    return native, prepare_native(native)
+        info, native, main_uuid, shared_uuid, prepared = clean_input(archive, require_vitrine=require_vitrine)
+        select_profile(info, main_uuid, shared_uuid, require_enabled=not static_only)
+    return native, prepared
 
 
 def require_separate_output(source, output):
@@ -72,37 +155,47 @@ def main():
     parser.add_argument("--fixed-key-mode-zero", action="store_true", help="Recovery rollback: use the direct mode-0 instruction from the last working build, without the runtime selector")
     parser.add_argument("--check-input", action="store_true",
                         help="Validate a decrypted source IPA without requiring Vitrine or writing output")
-    parser.add_argument("--output", type=Path, default=ROOT / "outputs/pixie-9.1.90/Spotify-9.1.90-Pixie.ipa")
+    parser.add_argument("--check-clean", action="store_true",
+                        help="Reject malformed input and existing/partial Pixie overlays, even when excluding Pixie")
+    parser.add_argument("--artifact-name", metavar="MOD_VERSION",
+                        help="With --check-input, print only the target's artifact filename")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     source = args.ipa.resolve()
-    output = args.output.resolve()
+    output = args.output.resolve() if args.output else None
+    if args.artifact_name and not args.check_input:
+        parser.error("--artifact-name requires --check-input")
     if not source.is_file():
         parser.error("Input IPA not found")
-    require_separate_output(source, output)
-    # Check version, UUID, encryption, instructions, bindings and all caves first.
-    native, (patched, audio, limits, key, native_trace) = read_input(
-        source, require_vitrine=not args.check_input)
-    if args.check_input:
-        print(f"Pixie input accepted: Spotify 9.1.90, UUID {UUID.hex()}; all patch guards passed")
+    if output:
+        require_separate_output(source, output)
+    with ZipFile(source) as archive:
+        info, native, main_uuid, shared_uuid, prepared = clean_input(
+            archive, require_vitrine=not (args.check_input or args.check_clean))
+    if args.check_clean:
+        print("Pixie exclusion preflight: clean Spotify input")
         return
+    profile = select_profile(info, main_uuid, shared_uuid)
+    licenses = required_licenses()
+    if not profile.reservation_counters_verified or not profile.runtime_layout_verified:
+        print(f"WARNING: Spotify {profile.version} packaging is enabled, but native runtime admission remains disabled: layout/counters are unverified.", file=sys.stderr)
+    # Check version, UUID, encryption, instructions, bindings and all caves first.
+    patched, audio, limits, key, native_trace = prepared
+    if args.check_input:
+        print(artifact_name(args.artifact_name, profile) if args.artifact_name else
+              f"Pixie input accepted: Spotify {profile.version}, UUID {profile.main_uuid.hex()}; all patch guards passed")
+        return
+    output = output or ROOT.parent / "out" / artifact_name((ROOT.parent / "version.txt").read_text().strip(), profile)
+    require_separate_output(source, output)
+    patched, exports = patch_export.patch(patched, profile)
     vitrine = args.vitrine_dylib.resolve() if args.vitrine_dylib else None
     if vitrine:
         run("codesign", "--verify", "--strict", vitrine)
         run("xcrun", "dyld_info", "-validate_only", vitrine)
-        if b"showAlbumShuffle:play:download:add:playColor:" not in vitrine.read_bytes():
-            raise RuntimeError("The rebuilt Vitrine lacks the album action row")
-    if (ROOT / "src/NativeRestrictionsPatch.h").read_text() != guard_header():
-        raise RuntimeError("Native restriction header is out of sync")
-    if (ROOT / "src/OfflineLimits.h").read_text() != limits_header():
-        raise RuntimeError("Offline limits header is out of sync")
-    if (ROOT / "src/NativeKeyModePatch.h").read_text() != key_header():
-        raise RuntimeError("Native key-mode header is out of sync")
-    if (ROOT / "src/NativeTracePatch.h").read_text() != native_trace_header():
-        raise RuntimeError("Native trace header is out of sync")
-
+        if b"Vitrine.Album.Download" not in vitrine.read_bytes():
+            raise RuntimeError("The rebuilt Vitrine lacks the album download button")
     executable = "Payload/Spotify.app/Spotify"
     output.parent.mkdir(parents=True, exist_ok=True)
-    sdk = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], text=True).strip()
     with tempfile.TemporaryDirectory(prefix="vitrine-9190-") as temporary:
         temporary = Path(temporary)
         if vitrine:
@@ -110,41 +203,21 @@ def main():
             staged_vitrine.write_bytes(vitrine.read_bytes())
             # Theos links this manual hook to its jailbreak framework path.
             # The supplied sideload IPA already bundles the same framework.
-            dependencies = subprocess.check_output(["otool", "-L", str(staged_vitrine)], text=True)
-            substrate = "/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate"
-            if substrate in dependencies:
-                run("install_name_tool", "-change", substrate,
-                    "@rpath/CydiaSubstrate.framework/CydiaSubstrate", staged_vitrine)
+            if substrate_dependencies(staged_vitrine):
+                pin_substrate_dependency(staged_vitrine)
             run("codesign", "--force", "--sign", "-", "--timestamp=none", staged_vitrine)
             run("codesign", "--verify", "--strict", staged_vitrine)
             run("xcrun", "dyld_info", "-validate_only", staged_vitrine)
             vitrine = staged_vitrine
         companion = temporary / "SpotifyAudioProbe.dylib"
-        run("xcrun", "clang", "-dynamiclib", "-arch", "arm64", "-target", "arm64-apple-ios15.0",
-            "-isysroot", sdk, "-fobjc-arc", "-std=gnu11", "-O2", "-fvisibility=hidden",
-            "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-nullability-completeness",
-            "-Werror=implicit-function-declaration", "-I" + str(ROOT / "src"),
-            "-DSAP_ENABLE_WAV_CAPTURE=0", *(ROOT / "src" / name for name in SOURCE_FILES),
-            "-framework", "AudioToolbox", "-framework", "Foundation", "-framework", "UIKit",
-            "-framework", "AVFAudio", "-framework", "CoreGraphics", "-framework", "AVFoundation",
-            "-framework", "CoreMedia", "-framework", "Network", "-Wl,-install_name,@rpath/SpotifyAudioProbe.dylib", "-o", companion)
-        run("codesign", "--force", "--sign", "-", "--timestamp=none", companion)
-        run("codesign", "--verify", "--strict", companion)
-        run("xcrun", "dyld_info", "-validate_only", companion)
+        build_companion(companion, temporary, profile)
         binary = temporary / "Spotify"
-        binary.write_bytes(native)
         # Preserve cyan's existing application entitlements, including App Groups.
-        entitlements = subprocess.check_output(["ldid", "-e", str(binary)])
-        original_entitlements = plistlib.loads(entitlements)
         entitlement_file = temporary / "entitlements.plist"
-        entitlement_file.write_bytes(entitlements)
         binary.write_bytes(patched)
         binary.chmod(0o755)
-        run("codesign", "--force", "--sign", "-", "--timestamp=none",
-            "--entitlements", entitlement_file, binary)
+        sign_preserving_entitlements(binary, native, entitlement_file)
         run("codesign", "--verify", "--strict", binary)
-        if plistlib.loads(subprocess.check_output(["ldid", "-e", str(binary)])) != original_entitlements:
-            raise RuntimeError("Spotify entitlements changed during overlay signing")
         run("xcrun", "dyld_info", "-validate_only", binary)
         imports = subprocess.check_output(["xcrun", "dyld_info", "-imports", str(binary)], text=True)
         for change in audio["changes"]:
@@ -156,9 +229,13 @@ def main():
             staged_output = Path(staging) / "result.ipa"
             with ZipFile(source) as original, ZipFile(staged_output, "w", allowZip64=True) as result:
                 for member in original.infolist():
+                    if member.filename in {IPA_LICENSE_DIRECTORY+name for name in licenses}:
+                        continue
                     replacement = binary.read_bytes() if member.filename == executable else vitrine.read_bytes() if vitrine and member.filename == "Payload/Spotify.app/Frameworks/spotifyglass.dylib" else original.read(member.filename)
                     result.writestr(member, replacement)
                 result.write(companion, "Payload/Spotify.app/Frameworks/SpotifyAudioProbe.dylib")
+                for name, content in licenses.items():
+                    result.writestr(IPA_LICENSE_DIRECTORY+name, content)
             with ZipFile(staged_output) as check:
                 if check.testzip() is not None:
                     raise RuntimeError("IPA ZIP integrity check failed")
@@ -170,9 +247,10 @@ def main():
             os.replace(staged_output, output)
 
     print(json.dumps({"output": str(output), "sha256": digest.hexdigest(),
-                      "spotify_uuid": UUID.hex(), "audio_imports": audio,
-                      "native_limits": limits, "key_request_mode": key, "native_observation": native_trace}, indent=2))
+                      "spotify_uuid": profile.main_uuid.hex(), "audio_imports": audio,
+                      "native_limits": limits, "key_request_mode": key, "native_observation": native_trace,
+                      "export": exports}, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

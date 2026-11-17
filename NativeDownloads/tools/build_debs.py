@@ -5,15 +5,23 @@ run before Vitrine's audio constructors, just as in the IPA. No postinst writes
 to Spotify, account material, or bundled copy of the hook framework.
 """
 import argparse
+import ctypes
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
+import tempfile
 from zipfile import ZipFile
 
-from build_vitrine_9190 import SOURCE_FILES
+from build_vitrine_9190 import input_profile
+from companion_build import sources, include_directories, FRAMEWORKS
+from build_native_share import build_native_share
+from pixie_target import V9190
+from generate_target import generate_headers, validate_headers
+from package_licenses import required_licenses
 import patch_native_restrictions as quota
 import patch_key_request_mode as key
 
@@ -26,12 +34,16 @@ def run(*args):
 def generate_header(folder):
     folder.mkdir(parents=True, exist_ok=True)
     patched = bytearray(key.ORIGINAL)
-    struct.pack_into('<I', patched, key.CALL_SITE - key.WINDOW, 0x52800002)
+    struct.pack_into('<I', patched, key.CALL_SITE - key.WINDOW, quota.branch(key.CALL_SITE,key.CAVE))
+    static_zero = bytearray(key.ORIGINAL)
+    struct.pack_into('<I', static_zero, key.CALL_SITE - key.WINDOW, 0x52800002)
     arrays = {'SupportedUUID': quota.UUID, 'SetterOriginal': quota.ORIGINAL,
-              'KeyOriginal': key.ORIGINAL, 'KeyPatched': patched,
-              'ProviderOriginal': key.PROVIDER_HEAD, 'MappingOriginal': key.MAPPING_BYTES}
+              'KeyOriginal': key.ORIGINAL, 'KeyPatched': patched, 'KeyStaticZero': static_zero,
+              'ProviderOriginal': key.PROVIDER_HEAD, 'MappingOriginal': key.MAPPING_BYTES,
+              'DLSymStubOriginal': key.DLSYM_STUB_HEAD}
     offsets = {'SetterOffset': quota.SETTER, 'KeyWindowOffset': key.WINDOW,
-               'KeyCallOffset': key.CALL_SITE, 'ProviderOffset': key.PROVIDER, 'MappingOffset': key.MAPPING}
+               'KeyCallOffset': key.CALL_SITE, 'ProviderOffset': key.PROVIDER, 'MappingOffset': key.MAPPING,
+               'DLSymStubOffset': key.DLSYM_STUB}
     text = '#pragma once\n#include <stdint.h>\n'
     for name, value in arrays.items():
         text += f'static const uint8_t SAPJB{name}[]={{' + ','.join(f'0x{b:02x}' for b in value) + '};\n'
@@ -67,12 +79,43 @@ def main():
     parser.add_argument('--theos', type=Path, default=PROJECT / '.build-tools/theos')
     parser.add_argument('--output', type=Path, default=ROOT / 'outputs/pixie-9.1.90-deb')
     args = parser.parse_args()
-    build = ROOT / 'build/deb'
-    generate_header(build)
-    if (ROOT / 'src/NativeRestrictionsPatch.h').read_text() != quota.guard_header():
-        raise RuntimeError('Native quota guard header is out of sync')
     with ZipFile(args.ipa) as archive:
-        original = archive.read('Payload/Spotify.app/Spotify')
+        original, profile = input_profile(archive, jailbreak=True)
+    with tempfile.TemporaryDirectory(prefix='pixie-deb-') as temporary:
+        build_packages(args, original, profile, Path(temporary))
+
+
+def build_packages(args, original, profile, build):
+    output = args.output.absolute()
+    if output.is_symlink() or output in (Path('/'), Path.home(), PROJECT, ROOT):
+        raise ValueError(f"Unsafe package output directory: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f'.{output.name}-', dir=output.parent) as temporary:
+        staged = Path(temporary)/'packages'
+        staged_args = argparse.Namespace(**{**vars(args), 'output': staged})
+        _build_packages(staged_args, original, profile, build)
+        if output.exists():
+            # Darwin can exchange nonempty directories in one filesystem operation.
+            # Keep the previous generation outside the temporary build directory.
+            rename = ctypes.CDLL(None, use_errno=True).renamex_np
+            rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            rename.restype = ctypes.c_int
+            RENAME_SWAP = 0x00000002
+            if rename(os.fsencode(staged), os.fsencode(output), RENAME_SWAP):
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error), str(output))
+            previous = output.parent/(output.name+'.previous-'+Path(temporary).name)
+            os.rename(staged, previous)
+            print(f"Previous package generation retained: {previous}")
+        else:
+            os.rename(staged, output)
+
+
+def _build_packages(args, original, profile, build):
+    licenses = required_licenses()
+    generate_header(build)
+    generate_headers(build, profile)
+    validate_headers(build, profile)
     quota.patch(original)
     key.patch(original)
     fixture = build / 'Spotify.original'
@@ -84,24 +127,24 @@ def main():
     manifests = []
     for scheme, architecture, prefix in [('rootful', 'iphoneos-arm', ''), ('rootless', 'iphoneos-arm64', '/var/jb')]:
         stage = build / ('stage-' + scheme)
-        if stage.exists(): shutil.rmtree(stage)
         libs = stage / (prefix.lstrip('/') + '/Library/MobileSubstrate/DynamicLibraries').lstrip('/')
         libs.mkdir(parents=True)
         companion = libs / 'SpotifyAudioProbe.dylib'
         framework = args.theos / ('vendor/lib/iphone/rootless' if prefix else 'vendor/lib')
         framework_path = prefix + '/Library/Frameworks'
+        swift = build_native_share(build/(scheme+'-NativeShareBridge.o'), sdk)
         run('xcrun', 'clang', '-dynamiclib', '-arch', 'arm64', '-target', 'arm64-apple-ios16.1',
             '-isysroot', sdk, '-fobjc-arc', '-std=gnu11', '-O2', '-fvisibility=hidden',
             '-Wall', '-Wextra', '-Wno-unused-parameter', '-Wno-nullability-completeness',
             '-Werror=implicit-function-declaration', '-DSAP_ENABLE_WAV_CAPTURE=0', '-DSAP_JAILBREAK=1',
             '-DSG_DRIVER=0', '-DSGRebindImport=SAPJBRebindImport',
-            '-I'+str(ROOT/'src'), '-I'+str(build), '-I'+str(PROJECT/'vitrine-upstream/tweak/Sources'),
-            '-F'+str(framework), *(ROOT/'src'/name for name in SOURCE_FILES),
+            *('-I'+str(p) for p in include_directories(build)), '-I'+str(PROJECT/'tweak/Sources'),
+            '-F'+str(framework), *sources(),
             ROOT/'src/JailbreakPatches.c', ROOT/'src/JailbreakSupport.m',
-            PROJECT/'vitrine-upstream/tweak/Sources/Core/SGRebind.m',
-            '-framework', 'AudioToolbox', '-framework', 'Foundation', '-framework', 'UIKit',
-            '-framework', 'AVFAudio', '-framework', 'CoreGraphics', '-framework', 'AVFoundation',
-            '-framework', 'CoreMedia', '-framework', 'CydiaSubstrate',
+            PROJECT/'tweak/Sources/Core/SGRebind.m',
+            '-lm', '-lsqlite3', '-lz', *swift['link_args'],
+            *(item for name in FRAMEWORKS for item in ('-framework',name)),
+            '-framework', 'CydiaSubstrate',
             '-Wl,-rpath,'+framework_path, '-Wl,-install_name,@rpath/SpotifyAudioProbe.dylib', '-o', companion)
         companion_dependencies = subprocess.check_output(['otool', '-L', str(companion)], text=True)
         substrate = '/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate'
@@ -142,9 +185,8 @@ Replaces: com.vitrine.tweak
 ''')
         documentation = stage/(prefix.lstrip('/')+'/usr/share/doc/com.pixie.spotify').lstrip('/')
         documentation.mkdir(parents=True)
-        for license_name in ['LICENSE', 'LICENSE.md']:
-            source = PROJECT/'vitrine-upstream'/license_name
-            if source.is_file(): shutil.copy2(source, documentation/license_name)
+        for name, content in licenses.items():
+            (documentation/name).write_bytes(content)
         (documentation/'README').write_text('Spotify Pixie 9.1.90\nInstall exactly one DEB matching your jailbreak layout.\n'
             'Requires Spotify 9.1.90 (UUID fbce22c1-7e1b-3e0d-9be8-66ff9291943e).\n'
             'Use the original Spotify app, not an IPA with Vitrine/Pixie already injected.\n'
@@ -159,6 +201,7 @@ Replaces: com.vitrine.tweak
         package = args.output/f'Spotify-9.1.90-Pixie-{scheme}.deb'
         run('dpkg-deb', '--root-owner-group', '-Zgzip', '--build', stage, package)
         run('dpkg-deb', '--info', package)
+        run('dpkg-deb', '--contents', package)
         manifests.append({'file':package.name, 'architecture':architecture, 'prefix':prefix or '/',
                           'sha256':hashlib.sha256(package.read_bytes()).hexdigest()})
     (args.output/'manifest.json').write_text(json.dumps({'packages':manifests,'native_patch_tests_passed':True,

@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix="pixie-guard-") as temporary:
     output.write_bytes(b"previous complete output")
     pipeline = Path(__file__).resolve().parents[2] / "scripts/pipeline.sh"
     for input_path, destination, message in [
-        (bad, output, "Expected Spotify 9.1.90"),
+        (bad, output, "Unexpected Spotify executable name"),
         (source, source, "Input and output IPA must be separate files"),
     ]:
         result = subprocess.run(
