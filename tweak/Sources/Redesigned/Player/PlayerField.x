@@ -38,6 +38,24 @@ static NSString *sg_lastCoverURI;
 // Spotify's color for the player, which can arrive before the plane has laid out once.
 static UIColor *sg_spotifyColor;
 
+NSNotificationName const SGRPlayerVisibilityDidChangeNotification = @"SGRPlayerVisibilityDidChangeNotification";
+static BOOL sg_disappeared, sg_wasVisible;
+
+BOOL SGRPlayerIsVisible(void) {
+    UIWindow *window = sg_field.window;
+    if (sg_disappeared || !window) return NO;
+    for (UIView *view = sg_field; view; view = view.superview)
+        if (view.hidden || view.alpha <= 0.01) return NO;
+    return CGRectIntersectsRect(window.bounds, [sg_field convertRect:sg_field.bounds toView:window]);
+}
+
+static void visibilityChanged(void) {
+    BOOL visible = SGRPlayerIsVisible();
+    if (visible == sg_wasVisible) return;
+    sg_wasVisible = visible;
+    [NSNotificationCenter.defaultCenter postNotificationName:SGRPlayerVisibilityDidChangeNotification object:nil];
+}
+
 SGRArtworkField *SGRPlayerField(void) {
     return sg_field;
 }
@@ -111,6 +129,7 @@ static SGRArtworkField *fieldIn(UIView *plane) {
     field.bleed = kBleed;
     objc_setAssociatedObject(plane, &kFieldKey, field, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     sg_field = field;
+    SGRObserveVisibility(field, ^{ visibilityChanged(); });
     [field setProvisionalColor:sg_spotifyColor];
     // Made while the player is about to open: whatever is read lands in the first frames of the
     // animation, where a crossfade would only add work.
@@ -120,6 +139,20 @@ static SGRArtworkField *fieldIn(UIView *plane) {
 }
 
 %hook _TtC21NowPlaying_ScrollImpl27NPVBackgroundViewController
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    sg_disappeared = NO;
+    visibilityChanged();
+}
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    visibilityChanged();
+}
+- (void)viewDidDisappear:(BOOL)animated {
+    %orig;
+    sg_disappeared = YES;
+    visibilityChanged();
+}
 - (void)viewDidLayoutSubviews {
     %orig;
     UIView *plane = ((UIViewController *)self).viewIfLoaded;
@@ -129,6 +162,7 @@ static SGRArtworkField *fieldIn(UIView *plane) {
     if (field.superview != plane) [plane addSubview:field];
     else if (plane.subviews.lastObject != field) [plane bringSubviewToFront:field];
     if (!CGRectEqualToRect(field.frame, plane.bounds)) field.frame = plane.bounds;
+    visibilityChanged();
     // Before the clip's: taking black or the photo away uncovers the field, which a clip then covers again.
     SGRPlayerBackdropLaidOut(field);
     SGRPlayerMotionFieldLaidOut();

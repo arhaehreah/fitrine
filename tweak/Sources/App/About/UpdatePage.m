@@ -80,7 +80,6 @@ static NSString *longDate(NSString *published) {    // 18 September 2026
 @implementation SGUpdatePageController {
     NSArray<SGUpdateGroup *> *_groups;
     UIView *_intro;
-    NSTimer *_ticker;
 }
 
 - (instancetype)init {
@@ -94,7 +93,6 @@ static NSString *longDate(NSString *published) {    // 18 September 2026
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
-    [_ticker invalidate];
 }
 
 // The releases whose changelog this page shows: everything newer than the build, newest first.
@@ -204,14 +202,7 @@ static NSArray<SGUpdateRelease *> *releasesToShow(void) {
     [self.tableView reloadData];
     // Only the status reads out on the right, and only it moves on its own while the page is open;
     // it is written into the cell so that a reload never lands under a tap.
-    [_ticker invalidate];
-    _ticker = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(readStatus) userInfo:nil repeats:YES];
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [_ticker invalidate];
-    _ticker = nil;
+    self.refreshSelector = @selector(readStatus);
 }
 
 - (void)readStatus {

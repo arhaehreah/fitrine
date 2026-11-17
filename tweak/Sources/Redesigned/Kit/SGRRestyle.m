@@ -98,6 +98,90 @@ static void logWatch(UIView *view, SEL selector, BOOL kept, BOOL onClass) {
     else if (onClass) SGLog(@"redesign kit: %@ watched for %s through its class", name, sel_getName(selector));
 }
 
+#pragma mark - visibility through the ancestor chain
+
+static char kVisibilityObserverKey, kVisibilitySubscribersKey;
+
+@interface SGRVisibilityObserver : NSObject
+@property (nonatomic, weak) UIView *view;
+@property (nonatomic, copy) dispatch_block_t changed;
+@property (nonatomic, strong) NSHashTable<UIView *> *ancestors;
+- (void)detach;
+- (void)attach;
+@end
+
+@implementation SGRVisibilityObserver
+- (void)detach {
+    for (UIView *ancestor in self.ancestors)
+        [objc_getAssociatedObject(ancestor, &kVisibilitySubscribersKey) removeObject:self];
+    self.ancestors = nil;
+}
+- (void)attach {
+    [self detach];
+    self.ancestors = [NSHashTable weakObjectsHashTable];
+    for (UIView *ancestor = self.view; ancestor; ancestor = ancestor.superview) {
+        NSHashTable *subscribers = objc_getAssociatedObject(ancestor, &kVisibilitySubscribersKey);
+        if (!subscribers) {
+            subscribers = [NSHashTable weakObjectsHashTable];
+            objc_setAssociatedObject(ancestor, &kVisibilitySubscribersKey, subscribers, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [subscribers addObject:self];
+        [self.ancestors addObject:ancestor];
+    }
+}
+@end
+
+static void reportVisibility(UIView *view, BOOL hierarchyChanged) {
+    NSHashTable *subscribers = objc_getAssociatedObject(view, &kVisibilitySubscribersKey);
+    for (SGRVisibilityObserver *observer in subscribers.allObjects) {
+        if (hierarchyChanged) [observer attach];
+        if (observer.view && observer.changed) observer.changed();
+    }
+}
+
+void SGRObserveVisibility(UIView *view, dispatch_block_t changed) {
+    SGRVisibilityObserver *observer = objc_getAssociatedObject(view, &kVisibilityObserverKey);
+    if (!changed) {
+        [observer detach];
+        observer.changed = nil;
+        objc_setAssociatedObject(view, &kVisibilityObserverKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // A descendant gets no callback when an ancestor moves inside one window. Observe UIKit's
+        // mutation boundary, without KVO changing Spotify's Swift classes or our other instance subclasses.
+        for (NSString *name in @[@"didMoveToSuperview", @"didMoveToWindow"]) {
+            SEL selector = NSSelectorFromString(name);
+            Method method = class_getInstanceMethod(UIView.class, selector);
+            IMP original = method_getImplementation(method);
+            method_setImplementation(method, imp_implementationWithBlock(^(UIView *self) {
+                ((void (*)(id, SEL))original)(self, selector);
+                reportVisibility(self, YES);
+            }));
+        }
+        Method hidden = class_getInstanceMethod(UIView.class, @selector(setHidden:));
+        IMP setHidden = method_getImplementation(hidden);
+        method_setImplementation(hidden, imp_implementationWithBlock(^(UIView *self, BOOL value) {
+            ((void (*)(id, SEL, BOOL))setHidden)(self, @selector(setHidden:), value);
+            reportVisibility(self, NO);
+        }));
+        Method alpha = class_getInstanceMethod(UIView.class, @selector(setAlpha:));
+        IMP setAlpha = method_getImplementation(alpha);
+        method_setImplementation(alpha, imp_implementationWithBlock(^(UIView *self, CGFloat value) {
+            ((void (*)(id, SEL, CGFloat))setAlpha)(self, @selector(setAlpha:), value);
+            reportVisibility(self, NO);
+        }));
+    });
+    if (!observer) {
+        observer = [SGRVisibilityObserver new];
+        observer.view = view;
+        objc_setAssociatedObject(view, &kVisibilityObserverKey, observer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [observer attach];
+    }
+    observer.changed = changed;
+}
+
 #pragma mark - views
 
 void SGRSuppress(UIView *view) {

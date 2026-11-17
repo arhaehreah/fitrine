@@ -97,11 +97,13 @@ void SGPlayerInvalidateSource(void);
 // Haptics), NULL until Spotify connects or starts one. Any thread; the render thread compares it with a render
 // notify's unit to process the music's output alone.
 AudioUnit SGPlayerMusicOutput(void);
+// Control-side snapshot; a connected but stopped output is not running.
+BOOL SGPlayerMusicOutputRunning(void);
 // The format Spotify hands the music's output (its input scope, element 0), the one the stage's buffers are
 // in. NO when there is no such output. Not on the render thread.
 BOOL SGPlayerMusicClientFormat(AudioStreamBasicDescription *format);
 // `watcher` is called with the music's output each time it changes (NULL when there is none any more), Spotify
-// starts it again, or a format of it changes: the time to read its format, add a render notify to it and start
+// starts or stops it, or a format of it changes: the time to read its format, add a render notify to it and start
 // over what was held. Called on Spotify's audio thread or a queue of Shared/Player's, under a lock a dispose
 // waits for, so the unit stays alive through the call; it must not wait on the main thread. NO when
 // Spotify's output cannot be reached at all. Register from a %ctor; up to four.

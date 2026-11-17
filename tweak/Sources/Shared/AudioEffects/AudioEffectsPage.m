@@ -389,7 +389,6 @@ static UIFont *tabular(UIFont *font) {
     UIView *_intro;
     UIView *_credits;
     UITextView *_creditsText;
-    NSTimer *_ticker;
 }
 
 - (instancetype)init {
@@ -458,15 +457,7 @@ static UIFont *tabular(UIFont *font) {
     // A choice, a file or the GraphicEQ text may have changed on the page this one opened.
     [self readState];
     [self.tableView reloadData];
-    // A canceled back swipe appears the page again without it ever disappearing, so the old timer goes first.
-    [_ticker invalidate];
-    _ticker = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(tick) userInfo:nil repeats:YES];
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [_ticker invalidate];
-    _ticker = nil;
+    self.refreshSelector = @selector(tick);
 }
 
 - (void)readState {

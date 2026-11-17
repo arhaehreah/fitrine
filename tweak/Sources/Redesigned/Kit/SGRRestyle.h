@@ -67,6 +67,10 @@ void SGRRunListToFoot(UIScrollView *list, UIView *page, CGFloat top, BOOL fromTo
 // The page's list: the first collection view under `view` nearly as wide as it, kept on `view` under `key`.
 UICollectionView *SGRPageListIn(UIView *view, const void *key);
 
+// Hidden, alpha, window and superview changes of this view or any ancestor, including an ancestor
+// reparented within the same window. One callback per target; nil removes it. Main thread only.
+void SGRObserveVisibility(UIView *view, dispatch_block_t changed);
+
 // The first view under `root` (itself included) with the accessibility identifier, depth first. The
 // answer is kept weakly on `root` under `cacheKey` and searched for again only when it is gone, has
 // left `root` or changed its identifier. nil when there is none; a miss is not cached.

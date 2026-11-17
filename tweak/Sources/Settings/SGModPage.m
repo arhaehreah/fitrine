@@ -754,7 +754,6 @@ static void light(UITableViewCell *cell, NSTimeInterval hold, NSTimeInterval fad
     NSArray<NSArray<SGModRow *> *> *_shown;   // each section's rows that show now (SGModRow.visible)
     UIView *_intro;
     UIView *_footer;
-    NSTimer *_ticker;
     BOOL _live;
     NSIndexPath *_nudgeAfterScroll;   // the switch a waiting row's tap is scrolling to
     NSString *_reveal;                // the title of the row to light once the page appears (-revealRowTitled:)
@@ -1024,12 +1023,9 @@ static void light(UITableViewCell *cell, NSTimeInterval hold, NSTimeInterval fad
     _shown = [self rowsToShow];
     [self.tableView reloadData];
     [self scrollToReveal];
-    if (!_live) return;
     // The counters climb while the page is open; the labels are written straight into the cells so
-    // that a reload never lands under a switch being dragged. A canceled back swipe appears the
-    // page again without it ever disappearing, so the old timer goes first.
-    [_ticker invalidate];
-    _ticker = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(tick) userInfo:nil repeats:YES];
+    // that a reload never lands under a switch being dragged. SGPage owns their foreground clock.
+    self.refreshSelector = _live ? @selector(tick) : NULL;
 }
 
 // Each second: the rows that come and go by themselves, then every value, slider and menu in view.
@@ -1061,12 +1057,6 @@ static void light(UITableViewCell *cell, NSTimeInterval hold, NSTimeInterval fad
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     SGUndressPageBar(self);
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [_ticker invalidate];
-    _ticker = nil;
 }
 
 - (void)readValues {

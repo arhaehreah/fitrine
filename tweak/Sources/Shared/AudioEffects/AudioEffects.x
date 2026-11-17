@@ -283,6 +283,10 @@ static BOOL readFormat(AudioUnit unit) {
 static void listenTo(AudioUnit unit) {
     if (!unit) return;
     AudioUnitRemoveRenderNotify(unit, rendered, unit);
+    if (!SGPlayerMusicOutputRunning()) {
+        dispatch_async(dispatch_get_main_queue(), ^{ SGDSPApply(SGKeyDSP); });
+        return;
+    }
     if (!readFormat(unit)) return;
     // The sound held from before the output stopped, or from another output, would play first; the stream
     // starts over instead.
@@ -510,6 +514,11 @@ static void setTending(BOOL on) {
 // The switch and the output's format: the engine made or moved to the output's rate, everything set when
 // it was, and the notify let in or kept out. Answers whether every effect was set.
 static BOOL applyMaster(void) {
+    if (!SGPlayerMusicOutputRunning()) {
+        setTending(NO);
+        SGDSPEngine *engine = atomic_load(&sg_engine);
+        if (engine) SGDSPEngineCollect(engine);
+    }
     if (!SGDSPSwitch(SGKeyDSP)) {
         setTending(NO);
         if (atomic_exchange(&sg_running, false)) SGLog(@"dsp: off, Spotify's sound passes as it is");
@@ -550,7 +559,7 @@ static BOOL applyMaster(void) {
         atomic_store_explicit(&sg_running, true, memory_order_release);
         SGLog(@"dsp: on");
     }
-    setTending(YES);
+    setTending(SGPlayerMusicOutputRunning());
     return everything;
 }
 

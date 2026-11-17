@@ -21,6 +21,8 @@ BOOL SGRMixShowsQueue(void);
 // The progress bar's slider laid out (PlayerControls.x): its bands follow the facts and its bounds, and are made
 // again only when either changed.
 void SGRPlayerMixSliderLaidOut(UISlider *slider);
+// A cover became ready after the field; resume a stage waiting without an arm timer.
+void SGRPlayerMixCoverLaidOut(void);
 
 #pragma mark - the cover's stage (PlayerArtwork.x)
 

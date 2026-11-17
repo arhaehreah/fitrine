@@ -195,6 +195,9 @@ void SGRPlayerLandscapeLinesChanged(void);
 void SGRPlayerMotionLyricsChanged(void);
 // The field was laid out (PlayerField.x): the clip goes onto it, and the cover is hidden or shown again.
 void SGRPlayerMotionFieldLaidOut(void);
+// The player's field is on screen and its controller has not disappeared. Main-thread changes only.
+BOOL SGRPlayerIsVisible(void);
+FOUNDATION_EXPORT NSNotificationName const SGRPlayerVisibilityDidChangeNotification;
 // A cover in the player laid out: hides it while a clip plays.
 void SGRPlayerMotionCoverLaidOut(void);
 // A clip is playing in place of the cover, which is then hidden: the lyrics' thumbnail and the open's

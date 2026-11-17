@@ -85,6 +85,7 @@ typedef NS_ENUM(NSInteger, SGLiveActivityColors) {
 
 // From the switch: starts following the player (and the activity, the app being in front) or ends both.
 void SGSetLiveActivityEnabled(BOOL on);
+BOOL SGLiveActivityLyricsActive(void);
 
 @class UIViewController;
 // The Live Activity page: a preview of the card (SGLiveActivityPreview.m), its switch, which view it shows, the
