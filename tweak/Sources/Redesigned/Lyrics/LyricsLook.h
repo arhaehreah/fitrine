@@ -37,6 +37,16 @@ UIViewController *SGRLyricsStylesSettingsPage(void);
 SGRLyricsLook SGRLyricsLookNow(void);
 void SGRSetLyricsLook(SGRLyricsLook look, id changer);
 
+// Keep the screen awake while the redesign's lyrics are on screen: the Lyrics page's switch, on by
+// default. The hold is what the lyrics view takes while it is in a window playing a song; the idle
+// timer is turned off only while a holder holds it, and is handed back to the system when none does,
+// the switch is off, or the app goes to the background (SGRKaraokeView.m takes and drops the hold).
+#define SGRKeyLyricsKeepAwake @"spotifyglass.redesign.lyricsKeepAwake"
+BOOL SGRLyricsKeepAwakeOn(void);
+// `holder` (the lyrics view) asks to keep the screen awake with YES, or stops with NO; the screen
+// stays awake while any holder holds it. Main thread only; more than one hold per holder counts once.
+void SGRLyricsHoldAwake(id holder, BOOL hold);
+
 // The presets, by name, Apple Music's first.
 NSArray<NSString *> *SGRLyricsLookPresetNames(void);
 SGRLyricsLook SGRLyricsLookPreset(NSUInteger index);

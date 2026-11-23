@@ -56,6 +56,56 @@ void SGRSetLyricsLook(SGRLyricsLook look, id changer) {
     [NSNotificationCenter.defaultCenter postNotificationName:SGRLyricsLookDidChangeNotification object:changer];
 }
 
+#pragma mark - keeping the screen awake
+
+// The holders asking to keep the screen awake right now (the lyrics view, one per screen), weakly held so
+// a view that goes without letting go cannot keep the screen on. The idle timer is left to Spotify except
+// while at least one holder holds it and the switch is on, so nothing else that wants the screen awake
+// (a debugger, the user) is overridden for good.
+static NSHashTable<id> *holders(void) {
+    static NSHashTable<id> *table;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ table = [NSHashTable weakObjectsHashTable]; });
+    return table;
+}
+
+static void applyAwake(void) {
+    UIApplication *app = UIApplication.sharedApplication;
+    // A locked or backgrounded phone draws nothing of the card, so the hold is dropped there and taken
+    // up again when the app comes back (the view holds it for as long as it is in its window).
+    BOOL keep = app.applicationState == UIApplicationStateActive && holders().count > 0 && SGRLyricsKeepAwakeOn();
+    if (app.idleTimerDisabled != keep) app.idleTimerDisabled = keep;
+}
+
+BOOL SGRLyricsKeepAwakeOn(void) {
+    return SGEnabled(SGRKeyLyricsKeepAwake);
+}
+
+// The app going away or coming back changes whether a holder's hold applies, without the holder itself
+// hearing of it (the lyrics view does not run from the background). Registered once, read afresh.
+static void watchAppForAwake(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        // queue:nil, then dispatch to main: these are posted from other threads, and an observer on the
+        // main queue would have the posting thread wait on main, which hangs Spotify at launch.
+        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            dispatch_async(dispatch_get_main_queue(), ^{ applyAwake(); });
+        }];
+        [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            dispatch_async(dispatch_get_main_queue(), ^{ applyAwake(); });
+        }];
+    });
+}
+
+void SGRLyricsHoldAwake(id holder, BOOL hold) {
+    if (!holder) return;
+    watchAppForAwake();
+    if (hold) [holders() addObject:holder];
+    else [holders() removeObject:holder];
+    applyAwake();
+}
+
 // Equal to the slider's step, so a look slid back onto a preset's values reads as that preset again.
 static BOOL same(CGFloat a, CGFloat b) {
     return fabs(a - b) < 0.01;
