@@ -616,6 +616,7 @@ static void keepScrubLook(UIView *host) {
 - (void)didMoveToWindow {
     %orig;
     if (((UIView *)self).window) [SGSponsorBlockOverlay attachToSlider:(UIView *)self];
+    else scrubLook((UISlider *)self, NO);
 }
 
 - (BOOL)isTracking {
@@ -652,10 +653,6 @@ static void keepScrubLook(UIView *host) {
     scrubLook((UISlider *)self, NO);
 }
 
-- (void)didMoveToWindow {
-    %orig;
-    if (!((UIView *)self).window) scrubLook((UISlider *)self, NO);
-}
 %end
 
 // The ordinary player's duration unit and the AI DJ's (DJMDurationElementsUnit) hold the same progress bar and times.
