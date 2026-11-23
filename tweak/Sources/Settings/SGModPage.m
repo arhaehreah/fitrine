@@ -998,11 +998,6 @@ static void light(UITableViewCell *cell, NSTimeInterval hold, NSTimeInterval fad
     light(cell, 0.4, 1.0);
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    [self lightRevealed];
-}
-
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     if (_intro) SGFitNote(self.tableView, _intro, 24, 0);
@@ -1055,6 +1050,7 @@ static void light(UITableViewCell *cell, NSTimeInterval hold, NSTimeInterval fad
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [self lightRevealed];
     // UIKit makes the bar's Back and title once the push has settled.
     __weak SGModPage *weak = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
