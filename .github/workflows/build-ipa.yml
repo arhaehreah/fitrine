@@ -1,4 +1,4 @@
-name: Build IPA from your own Spotify IPA
+﻿name: Build IPA from your own Spotify IPA
 
 on:
   workflow_dispatch:
@@ -12,12 +12,50 @@ on:
         default: artifacts
         type: choice
         options: [artifacts, filebin, both]
+  push:
+    branches:
+      - main
+      - "port-*"
 
 env:
   THEOS: ${{ github.workspace }}/theos
 
 jobs:
+  tweak-check:
+    if: github.event_name == 'push'
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/checkout@v5
+        with:
+          repository: theos/theos
+          path: theos
+          submodules: recursive
+
+      - name: Install build tools
+        run: brew install make dpkg ldid
+
+      - name: Ensure SGFlagList stub if gitignored
+        run: |
+          if [ ! -f tweak/Sources/Shared/Flags/SGFlagList.m ]; then
+            mkdir -p tweak/Sources/Shared/Flags
+            cat > tweak/Sources/Shared/Flags/SGFlagList.m << 'EOF'
+          #import <Foundation/Foundation.h>
+          const void *SGFlagTable = NULL;
+          const NSUInteger SGFlagCount = 0;
+          EOF
+          fi
+
+      - name: Compile tweak only
+        run: make -C tweak -j$(sysctl -n hw.ncpu)
+
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v5
