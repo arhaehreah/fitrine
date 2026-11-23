@@ -27,6 +27,7 @@
 // and the log says which fired.
 #import "Core/SGCore.h"
 #import "Redesigned/NowPlayingBar/NowPlayingBar.h"
+#import "Redesigned/Kit/SGRGlass.h"
 
 @interface SPTBarOverlayPresentationTransition : NSObject
 - (UIView *)bottomBarView;
@@ -53,7 +54,7 @@ static void collectPanes(UIView *view, NSMutableArray<UIView *> *panes) {
 
 static UIVisualEffectView *copyPane(UIView *pane) {
     BOOL platter = ![pane isKindOfClass:UIVisualEffectView.class];
-    UIVisualEffect *effect = platter ? SGGlassEffect() : ((UIVisualEffectView *)pane).effect;
+    UIVisualEffect *effect = platter ? SGRGlassEffect() : ((UIVisualEffectView *)pane).effect;
     UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:effect];
     glass.userInteractionEnabled = NO;
     // The effect does not carry the appearance the pane was drawn in, dark for both bars, and the stand-in
