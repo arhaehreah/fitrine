@@ -18,7 +18,38 @@ PAGE(SGNowPlayingBarSettingsPage) PAGE(SGQueueSettingsPage) PAGE(SGRAlbumSetting
 PAGE(SGRNavbarSettingsPage) PAGE(SGRHomeSettingsPage)
 PAGE(SGSingSettingsPage) PAGE(SGSpatialVoiceSettingsPage) PAGE(SGVibrationsSettingsPage)
 UIViewController *SGRPlayerSettingsPage(NSArray *more) { return blank(@"SGRPlayerSettingsPage"); }
-UIViewController *SGRLyricsSettingsPage(NSString *title, NSString *intro, NSArray<SGModSection *> *sections) { return blank(title); }
+UIViewController *SGRLyricsSettingsPage(NSString *title, NSString *intro, NSArray<SGModSection *> *sections) {
+    return [[SGModPage alloc] initWithTitle:title intro:intro sections:sections footer:nil];
+}
+// Redesigned/Lyrics/LyricsStylesSettings.m, whose cards play the real karaoke view: a blank page here.
+PAGE(SGRLyricsStylesSettingsPage)
+PAGE(SGLicensesPage) PAGE(SGUpdatePage) PAGE(SGReportListPage)
+
+// AboutSettings.m builds the real Mod rows; their external actions stay offline here.
+NSString *SGSpotifyVersion(void) { return @"9.1.90"; }
+NSString *SGUpdateStatus(void) { return @"up to date"; }
+BOOL SGBuildIsBeta(void) { return NO; }
+NSArray<SGUpdateChange *> *SGWhatsNewChanges(void) { return @[]; }
+void SGShowOnboarding(void) {}
+void SGShowWhatsNew(void) {}
+void SGExportSettings(void) {}
+void SGImportSettings(UIViewController *presenter) {}
+void SGShareDiagnostics(UIViewController *presenter) {}
+void SGAutoMixApply(BOOL on) {}
+void SGLosslessLowerQuality(BOOL lower) {}
+void SGAudioQualitySettingChanged(void) {}
+BOOL SGGeminiForgetKey(void) { return YES; }
+BOOL SGClaudeForgetKey(void) { return YES; }
+NSURL *SGHarnessStorageURI;
+BOOL SGOpenSpotifyURI(NSURL *uri) { SGHarnessStorageURI = uri; return YES; }
+SGModRow *SGNativeVideoSwitchRow(void) { return SGHideRow(@"Switch to video", nil, @"spotifyglass.hideVideoSwitch"); }
+BOOL SGOpenAIForgetKeys(void) { return YES; }
+BOOL SGDeepLForgetKey(void) { return YES; }
+BOOL SGSpicyLyricsForgetKey(void) { return YES; }
+BOOL SGDeezerForgetKey(void) { return YES; }
+void SGLyricsTranslationServiceSettingsChanged(void) {}
+NSString *SGKaraokePlayingTrack(void) { return nil; }
+NSNotificationName const SGLyricsDidReloadNotification = @"harness.lyrics.reload";
 
 #define ROW(name) SGModRow *name(void) { return SGPageRow(@#name, ^UIViewController *{ return nil; }); }
 NSArray<SGModRow *> *SGAITranslatorRows(void) { return @[SGPageRow(@"SGAITranslatorRows", ^UIViewController *{ return nil; })]; }

@@ -23,11 +23,90 @@ static double now(void) {
     return (double)mach_absolute_time() * base.numer / base.denom / 1e6;
 }
 
+static int badgeCheck(NSUInteger state) {
+    NSArray *switches = @[@[@NO, @NO], @[@YES, @NO], @[@YES, @YES], @[@NO, @YES]];
+    SGSetEnabled(SGKeyAIBadges, [switches[state][0] boolValue]);
+    SGSetEnabled(SGKeyLikelyAIBadges, [switches[state][1] boolValue]);
+    NSArray *keys = @[
+        @"ios-creator-impl.is_ai_persona_badge_enabled",
+        @"ios-creator-impl.is_ai_attribution_enabled",
+        @"ios-feature-search.ai_persona_badge_enabled",
+        @"ios-listuxplatformconsumers-defaultrowslotplugins.ai_persona_badge_enabled",
+        @"ios-creator-impl.is_likely_ai_persona_badge_enabled",
+        @"ios-feature-search.likely_ai_persona_badge_enabled",
+        @"ios-harness.not-a-badge",
+    ];
+    NSArray *truth = @[
+        @[@NO, @NO, @NO, @NO, @NO, @NO, @NO],
+        @[@YES, @YES, @YES, @YES, @NO, @NO, @NO],
+        @[@YES, @YES, @YES, @YES, @YES, @YES, @NO],
+        @[@NO, @NO, @NO, @NO, @NO, @NO, @NO],
+    ];
+    int wrong = 0;
+    for (NSUInteger i = 0; i < keys.count; i++) {
+        id expected = [truth[state][i] boolValue] ? @YES : nil;
+        id got = SGForcedFlagValue(keys[i]);
+        if (!(got == expected || [got isEqual:expected])) {
+            printf("wrong AI badge state %lu for %s\n", (unsigned long)state, [keys[i] UTF8String]);
+            wrong++;
+        }
+    }
+    printf("AI badge launch state %lu: %d wrong\n", (unsigned long)state, wrong);
+    return wrong ? 1 : 0;
+}
+
+static NSString *const cacheItem = @"ios-settings-connectivitypageplugin-impl.show_cache_limit_item";
+
+static int cacheCheck(NSUInteger state) {
+    if (state == 1 || state == 2) SGSetEnabled(@"spotifyglass.showCacheLimit", state == 1);
+    if (state == 3) SGSetEnabled(SGKeyStock, YES);
+    BOOL enabled = state < 2;
+    id expected = enabled ? @YES : nil;
+    id initial = SGForcedFlagValue(cacheItem);
+    SGSetEnabled(@"spotifyglass.showCacheLimit", !enabled);
+    id afterFlip = SGForcedFlagValue(cacheItem);
+    BOOL ok = [initial isEqual:expected] || (!initial && !expected);
+    ok &= [afterFlip isEqual:expected] || (!afterFlip && !expected);
+    ok &= SGForcedFlagValue([cacheItem stringByAppendingString:@"_other"]) == nil;
+    printf("cache limit launch state %lu: %s\n", (unsigned long)state, ok ? "PASS" : "FAIL");
+    return !ok;
+}
+
+static int checkLaunches(char *executable, char *option) {
+    int wrong = 0;
+    for (char state = '0'; state <= '3'; state++) {
+        char value[] = {state, '\0'};
+        char *args[] = {executable, option, value, NULL};
+        pid_t child;
+        int error = posix_spawn(&child, executable, NULL, NULL, args, *_NSGetEnviron());
+        if (error) {
+            fprintf(stderr, "%s launch failed: %s\n", option, strerror(error));
+            return 1;
+        }
+        int status;
+        if (waitpid(child, &status, 0) < 0) {
+            perror("launch wait");
+            return 1;
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) wrong++;
+    }
+    return wrong ? 1 : 0;
+}
 int main(int argc, char **argv) {
     @autoreleasepool {
         NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
         for (NSString *key in [store dictionaryRepresentation]) {
             if ([key hasPrefix:@"spotifyglass."]) [store removeObjectForKey:key];
+        }
+        SGPrefsChanged();
+        if (argc == 3 && strlen(argv[2]) == 1 && argv[2][0] >= '0' && argv[2][0] <= '3') {
+            NSUInteger state = argv[2][0] - '0';
+            if (!strcmp(argv[1], "--badge-state")) return badgeCheck(state);
+            if (!strcmp(argv[1], "--cache-state")) return cacheCheck(state);
+        }
+        if (argc != 1) {
+            fprintf(stderr, "usage: %s [--badge-state|--cache-state 0|1|2|3]\n", argv[0]);
+            return 1;
         }
         [store setBool:YES forKey:SGKeyHideAds];
         [store setBool:YES forKey:SGKeyHideUpsells];
@@ -69,6 +148,7 @@ int main(int argc, char **argv) {
         NSUInteger forced = 0, wrong = 0;
         for (NSString *key in keys) {
             id expected = SGFlagOverride(key) ?: SGAdBlockForcedFlag(key);
+            if ([key isEqualToString:cacheItem]) expected = @YES;
             id got = SGForcedFlagValue(key);
             if (got) forced++;
             if (!(expected == got || [expected isEqual:got])) {
@@ -100,6 +180,8 @@ int main(int argc, char **argv) {
             printf("wrong report after the late ask\n");
             wrong++;
         }
+        wrong += checkLaunches(argv[0], "--badge-state");
+        wrong += checkLaunches(argv[0], "--cache-state");
         return wrong ? 1 : 0;
     }
 }

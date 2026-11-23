@@ -3,6 +3,8 @@
 #import "About.h"
 #import "App/Onboarding/Onboarding.h"
 #import "Shared/AutoMix/AutoMix.h"
+#import "Shared/Flags/Flags.h"
+#import "Shared/Navigation/Links.h"
 #import "Shared/Lossless/LosslessQuality.h"
 #import "Shared/LyricsSources/LyricsSources.h"
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
@@ -56,7 +58,12 @@ static SGModRow *withSymbol(SGModRow *row, NSString *symbol) {
 // Which build this is, whether GitHub has a newer release, and where to reach the mod: without these
 // rows a build that is already installed has no way of telling its user that anything moved on.
 UIViewController *SGAboutPage(void) {
-    SGModRow *reset = withSymbol(SGActionRow(@"Reset all settings", nil, ^{ confirmReset(); }), @"trash");
+    SGModRow *cacheLimit = SGSwitchRow(@"Show cache size limit", SGRestartNote, SGKeyShowCacheLimit);
+    SGModRow *storage = SGActionRow(@"Open Spotify storage settings", nil, ^{
+        SGOpenSpotifyURI([NSURL URLWithString:@"spotify:config:storage"]);
+    });
+    storage.searchIdentifier = @"action.spotifyStorage";
+    SGModRow *reset = SGWithSymbol(SGActionRow(@"Reset all settings", nil, ^{ confirmReset(); }), @"trash");
     reset.color = SGRed();
     SGModRow *clearKeys = withSymbol(SGActionRow(@"Clear Keychain", nil, ^{ confirmClearKeychain(); }), @"key");
     clearKeys.color = SGRed();
@@ -86,6 +93,8 @@ UIViewController *SGAboutPage(void) {
     return [[SGModPage alloc] initWithTitle:@"Mod" intro:nil sections:@[
         SGSection(nil, build),
         SGSection(nil, links),
+        SGNotedSection(@"Storage", @[cacheLimit, storage],
+            @"Spotify trims its cache to the size you choose and keeps your downloads. With a small cache, Pixie may need to download a streamed track before exporting it."),
         SGSection(nil, @[
             withSymbol(SGActionRow(@"Export settings", nil, ^{ SGExportSettings(); }), @"square.and.arrow.up"),
             withSymbol(SGActionRow(@"Import settings", nil, ^{ SGImportSettings(); }), @"square.and.arrow.down"),
