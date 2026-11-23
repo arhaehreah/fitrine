@@ -343,6 +343,7 @@ typedef struct {
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    SGRLyricsHoldAwake(self, NO);   // a view on its way out cannot keep the screen awake
     free(_spans);
     free(_breaks);
 }
@@ -548,7 +549,16 @@ typedef struct {
         _browsing = NO;
         _scroll.contentOffset = CGPointZero;
     }
+    [self updateKeepAwake];
     [self scheduleLink];
+}
+
+// The Lyrics page's "Keep screen on": the screen stays awake only while these lines are on screen and the
+// song is playing. The preview (a still in the settings page) and a torn-down view hold nothing, so they
+// cannot keep the screen awake; whether the hold applies at all is the switch's (applyAwake, LyricsLook.m).
+- (void)updateKeepAwake {
+    BOOL holds = self.window && !_sample && SGPlayerState().isPlaying;
+    SGRLyricsHoldAwake(self, holds);
 }
 
 // The player opens and closes in animations that run at 120 Hz, and while a display link asked
@@ -610,6 +620,7 @@ typedef struct {
 // Play, pause, a new track: the clock is about to move, or the page to change.
 - (void)playerStateDidChange:(SPTPlayerState *)state {
     [self stir];
+    [self updateKeepAwake];
 }
 
 // A seek while paused, from Spotify's own scrubber: a report that moves the position. A report that
