@@ -30,9 +30,10 @@ SPTPlayerState *SGPlayerState(void) {
 // The state's `future` is a plain array of id; the entries are SPTPlayerTracks with a title and a URI.
 NSArray<SPTPlayerTrack *> *SGPlayerUpcomingTracks(SPTPlayerState *state, NSUInteger limit) {
     NSMutableArray<SPTPlayerTrack *> *tracks = [NSMutableArray array];
+    Class trackClass = objc_getClass("SPTPlayerTrack");
     for (id item in state.future) {
         if (tracks.count == limit) break;
-        if (![item isKindOfClass:SPTPlayerTrack.class]) continue;
+        if (![item isKindOfClass:trackClass]) continue;
         SPTPlayerTrack *track = (SPTPlayerTrack *)item;
         if (!track.trackTitle.length || !SGURIString(track.URI)) continue;
         [tracks addObject:track];
