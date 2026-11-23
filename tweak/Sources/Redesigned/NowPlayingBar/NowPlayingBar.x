@@ -60,7 +60,7 @@ static BOOL sg_cardPressed;
 
 static void pressCard(BOOL pressed, BOOL animated) {
     UIView *host = sg_container.viewIfLoaded;
-    UIVisualEffectView *glass = sg_cardGlass;
+    UIView *glass = sg_cardGlass;
     if (!host) return;
     sg_cardPressed = pressed;
     CATransform3D sink = CATransform3DIdentity;
@@ -105,7 +105,7 @@ static void watchCard(UIView *host, CGRect card, CGFloat radius) {
         __weak UIView *weakHost = host;
         SGRPressWatch(host, SGRPressKindScrolling, ^BOOL(UITouch *touch) {
             UIView *view = weakHost;
-            UIVisualEffectView *glass = sg_cardGlass;
+            UIView *glass = sg_cardGlass;
             if (!view || glass.superview != view || !glass.window) return NO;
             return CGRectContainsPoint(glass.frame, [touch locationInView:view]) && !SGRPressOnSmallControl(touch, view);
         }, ^(BOOL pressed, BOOL tapped) {
