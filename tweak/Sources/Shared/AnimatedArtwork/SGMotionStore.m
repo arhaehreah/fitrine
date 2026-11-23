@@ -1,4 +1,4 @@
-// Remote videos kept as local files in Caches/Retrine/Motion, named by a hash of their address, and the
+// Remote videos kept as local files in Caches/Vitrine/Motion, named by a hash of their address, and the
 // videos the mod makes, named by a hash of their key. A video asked for again while it downloads joins the
 // download in flight. Trimming keeps the newest clips within both budgets, except those still in use.
 #import <AVFoundation/AVFoundation.h>
@@ -8,7 +8,6 @@
 #import <stdlib.h>
 #import <string.h>
 #import "Core/SGCore.h"
-#import "Core/SGDataRoot.h"
 #import "AnimatedArtwork.h"
 #import "SGMotionTicket.h"
 
@@ -20,7 +19,8 @@ static _Atomic uint64_t sg_clearGeneration;
 static void trim(void);
 
 static NSURL *folder(void) {
-    return [SGDataRoot(NSCachesDirectory) URLByAppendingPathComponent:@"Motion" isDirectory:YES];
+    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
+    return [caches URLByAppendingPathComponent:@"Vitrine/Motion" isDirectory:YES];
 }
 
 static dispatch_queue_t storeQueue(void) {
