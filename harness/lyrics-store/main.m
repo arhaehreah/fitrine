@@ -60,11 +60,10 @@ int main(void) {
     @autoreleasepool {
         SGKaraokeLine *lead = line(@"Hello", 1000);
         lead.backing = line(@"Oh", 1100); lead.pronunciation = line(@"Hel-lo", 1000);
-        lead.note = @"A reference"; lead.translation = @"안녕"; lead.translationMade = YES;
+        lead.translation = @"안녕"; lead.translationMade = YES;
         lead.backing.translation = @"오";
-        SGKaraokeLine *ai = line(@"World", 2000);
-        ai.pronunciation = line(@"Generated", 2000); ai.pronunciationMade = YES;
-        NSArray *original = @[lead, ai];
+        SGKaraokeLine *plain = line(@"World", 2000);
+        NSArray *original = @[lead, plain];
         NSDictionary *record = SGLyricsStoreEncode(original, @"Fixture provider");
         NSData *data = [NSPropertyListSerialization dataWithPropertyList:record format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
         CHECK(data && !record[@"lines"][0][@"translation"] && !record[@"lines"][0][@"translationMade"]);
@@ -77,14 +76,14 @@ int main(void) {
         CHECK(decoded.words[1].joined && !decoded.words[0].joined && decoded.start == 1000 && decoded.end == 1500);
         CHECK([decoded.voice isEqual:@"v2"] && decoded.align == SGKaraokeAlignTrailing && decoded.timing == SGKaraokeTimingWords);
         CHECK([decoded.backing.words[0].text isEqual:@"Oh"] && [decoded.pronunciation.words[0].text isEqual:@"Hel-lo"]);
-        CHECK([decoded.note isEqual:@"A reference"] && !decoded.translation && !decoded.translationMade);
-        CHECK(!round[1].pronunciation && round[1].pronunciationMade);
+        CHECK(!decoded.translation && !decoded.translationMade);
+        CHECK(!round[1].pronunciation);
         CHECK(SGLyricsStoreDecode(SGLyricsStoreEncode(@[line(@"No credit", 0)], nil), &credit) && !credit);
         NSMutableDictionary *bad = [record mutableCopy]; bad[@"v"] = @2;
         CHECK(!SGLyricsStoreDecode(bad, &credit) && !credit);
         for (id garbage in @[@"garbage", @1, NSNull.null, @[], @{}, @{@"v": @1, @"lines": @[@"bad"]},
                               @{@"v": @1, @"lines": @[], @"credit": @7}]) CHECK(!SGLyricsStoreDecode(garbage, NULL));
-        for (NSString *key in @[@"words", @"start", @"end", @"align", @"timing", @"voice", @"note", @"backing", @"pronunciation", @"pronunciationMade"]) {
+        for (NSString *key in @[@"words", @"start", @"end", @"align", @"timing", @"voice", @"backing", @"pronunciation"]) {
             NSMutableDictionary *badLine = [record[@"lines"][0] mutableCopy]; badLine[key] = NSNull.null;
             CHECK(!SGLyricsStoreDecode(@{@"v": @1, @"lines": @[badLine]}, NULL));
         }

@@ -16,15 +16,14 @@ static NSDictionary *encodeLine(SGKaraokeLine *line, NSUInteger depth) {
         [words addObject:@{@"text": word.text, @"start": @(word.start), @"end": @(word.end), @"joined": @(word.joined)}];
     }
     NSMutableDictionary *record = [@{@"words": words, @"start": @(line.start), @"end": @(line.end),
-        @"align": @(line.align), @"timing": @(line.timing), @"pronunciationMade": @(line.pronunciationMade)} mutableCopy];
+        @"align": @(line.align), @"timing": @(line.timing)} mutableCopy];
     if (line.voice) record[@"voice"] = line.voice;
-    if (line.note) record[@"note"] = line.note;
     if (line.backing) {
         NSDictionary *backing = encodeLine(line.backing, depth + 1);
         if (!backing) return nil;
         record[@"backing"] = backing;
     }
-    if (line.pronunciation && !line.pronunciationMade) {
+    if (line.pronunciation) {
         NSDictionary *pronunciation = encodeLine(line.pronunciation, depth + 1);
         if (!pronunciation) return nil;
         record[@"pronunciation"] = pronunciation;
@@ -57,11 +56,8 @@ static SGKaraokeLine *decodeLine(id record, NSUInteger depth) {
     if (![record[@"words"] isKindOfClass:NSArray.class]
         || !integer(record[@"start"], NSIntegerMin, NSIntegerMax) || !integer(record[@"end"], NSIntegerMin, NSIntegerMax)
         || !integer(record[@"align"], SGKaraokeAlignLeading, SGKaraokeAlignTrailing)
-        || !integer(record[@"timing"], SGKaraokeTimingWords, SGKaraokeTimingNone)
-        || !integer(record[@"pronunciationMade"], 0, 1)) return nil;
-    for (NSString *key in @[@"voice", @"note"]) {
-        if (record[key] && ![record[key] isKindOfClass:NSString.class]) return nil;
-    }
+        || !integer(record[@"timing"], SGKaraokeTimingWords, SGKaraokeTimingNone)) return nil;
+    if (record[@"voice"] && ![record[@"voice"] isKindOfClass:NSString.class]) return nil;
     NSMutableArray *words = [NSMutableArray array];
     for (id item in record[@"words"]) {
         if (![item isKindOfClass:NSDictionary.class] || ![item[@"text"] isKindOfClass:NSString.class]
@@ -75,14 +71,12 @@ static SGKaraokeLine *decodeLine(id record, NSUInteger depth) {
     SGKaraokeLine *line = [SGKaraokeLine new];
     line.words = words; line.start = [record[@"start"] integerValue]; line.end = [record[@"end"] integerValue];
     line.align = [record[@"align"] unsignedIntegerValue]; line.timing = [record[@"timing"] unsignedIntegerValue];
-    line.voice = record[@"voice"]; line.note = record[@"note"];
-    line.pronunciationMade = [record[@"pronunciationMade"] boolValue];
+    line.voice = record[@"voice"];
     if (record[@"backing"]) {
         line.backing = decodeLine(record[@"backing"], depth + 1);
         if (!line.backing) return nil;
     }
     if (record[@"pronunciation"]) {
-        if (line.pronunciationMade) return nil;
         line.pronunciation = decodeLine(record[@"pronunciation"], depth + 1);
         if (!line.pronunciation) return nil;
     }
