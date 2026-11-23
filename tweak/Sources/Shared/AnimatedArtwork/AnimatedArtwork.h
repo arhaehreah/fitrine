@@ -108,6 +108,16 @@ void SGMotionFile(NSURL *remote, void (^done)(NSURL *file));
 // Where a video the mod makes itself is kept under `key`, among the downloads, which are kept to the
 // newest few. Whether it is there yet is the caller's to check. Any thread.
 NSURL *SGMotionMadeFile(NSString *key);
+// Serial store queue: checks for an existing file, creates/trims the folder, then writes if needed.
+// Both blocks run off main on that queue. done reports whether the file is ready.
+void SGMotionMakeFile(NSURL *file, BOOL (^write)(void), void (^done)(BOOL));
+
+// Main queue consumer handle. Explicit cancellation suppresses completion; dropping the handle
+// alone preserves the completion-only API's lifetime. Other consumers keep their shared transfer.
+@interface SGMotionTicket : NSObject
+- (void)cancel;
+@end
+SGMotionTicket *SGMotionRequestFile(NSURL *remote, void (^done)(NSURL *file));
 
 // The first frame of a local video. Main queue.
 void SGMotionPoster(NSURL *file, void (^done)(UIImage *poster));
