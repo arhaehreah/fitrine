@@ -62,7 +62,6 @@ UIViewController *SGAboutPage(void) {
     SGModRow *storage = SGActionRow(@"Open Spotify storage settings", nil, ^{
         SGOpenSpotifyURI([NSURL URLWithString:@"spotify:config:storage"]);
     });
-    storage.searchIdentifier = @"action.spotifyStorage";
     SGModRow *reset = SGWithSymbol(SGActionRow(@"Reset all settings", nil, ^{ confirmReset(); }), @"trash");
     reset.color = SGRed();
     SGModRow *clearKeys = withSymbol(SGActionRow(@"Clear Keychain", nil, ^{ confirmClearKeychain(); }), @"key");
