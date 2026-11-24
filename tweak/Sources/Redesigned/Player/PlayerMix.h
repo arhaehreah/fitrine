@@ -30,3 +30,6 @@ void SGRPlayerMixCoverLaidOut(void);
 // takes the stage away and hands the cover back. NO, with nothing changed, when no cover is on screen. A cover the
 // morph also hides (SGRPlayerSetCoverHidden) comes back only once neither holds it.
 BOOL SGRPlayerStageCover(UIView *stage);
+// Reposition the active stage to the cover's current on-screen frame. Called during the mix tick so the stage
+// stays pinned while the pager slides cells.
+void SGRPlayerStageReposition(void);

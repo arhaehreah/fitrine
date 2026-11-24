@@ -535,6 +535,7 @@ static BOOL stateHolds(SPTPlayerState *state) {
         [self stop:@"held back" done:NO];
         return;
     }
+    SGRPlayerStageReposition();
     double position = positionOf(SGPlayerState());
     CGFloat progress;
     if (_onNext) {

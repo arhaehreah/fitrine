@@ -33,6 +33,10 @@ static NSHashTable<UIView *> *sg_tilts;
 static NSMapTable<UIView *, UIView *> *sg_covers;
 // AutoMix's stage over the cover (SGRPlayerStageCover) and the cover it stands in for.
 static __weak UIView *sg_stage, *sg_stagedCover;
+// Covers hidden while the stage is active. During a mix the stage can move between pager cells; restoring the
+// old cell's cover immediately makes it flash "reappear" while the cell slides away. Keep every staged cover
+// hidden until the stage ends, then restore them.
+static NSHashTable<UIView *> *sg_stageHiddenCovers;
 
 static CGFloat currentScale(void) {
     SPTPlayerState *state = SGPlayerState();
@@ -158,33 +162,65 @@ BOOL SGRPlayerCoverHidden(void) {
 
 #pragma mark - AutoMix's stage
 
-// Over the cover in the tilt view, its bounds, center and scale, so it sits exactly where the cover is drawn.
+// Pin the stage to the cover's on-screen frame in the window so it stays put while the pager slides cells.
+// Uses the presentation frame so a mid-animation slide doesn't move the stage.
 static void placeStage(UIView *tilt, UIView *cover) {
     UIView *stage = sg_stage;
-    if (stage.superview != tilt) [tilt insertSubview:stage aboveSubview:cover];
-    if (!CGRectEqualToRect(stage.bounds, cover.bounds)) stage.bounds = cover.bounds;
-    if (!CGPointEqualToPoint(stage.center, cover.center)) stage.center = cover.center;
-    if (!CGAffineTransformEqualToTransform(stage.transform, cover.transform)) stage.transform = cover.transform;
+    if (!stage) return;
+    UIView *host = (UIView *)SGRPlayerField() ?: tilt.window;
+    if (!host) {
+        if (stage.superview != tilt) [tilt insertSubview:stage aboveSubview:cover];
+        if (!CGRectEqualToRect(stage.bounds, cover.bounds)) stage.bounds = cover.bounds;
+        if (!CGPointEqualToPoint(stage.center, cover.center)) stage.center = cover.center;
+        if (!CGAffineTransformEqualToTransform(stage.transform, cover.transform)) stage.transform = cover.transform;
+        return;
+    }
+    if (stage.superview != host) [host addSubview:stage];
+    CALayer *pres = cover.layer.presentationLayer ?: cover.layer;
+    CGRect frame = [pres convertRect:cover.bounds toLayer:host.layer];
+    if (CGRectIsNull(frame) || CGRectIsEmpty(frame)) frame = [cover convertRect:cover.bounds toView:host];
+    if (!CGRectEqualToRect(stage.frame, frame)) {
+        stage.transform = CGAffineTransformIdentity;
+        stage.bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
+        stage.center = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+    }
+    CGFloat radius = SGRRadiusArtwork;
+    if (cover.bounds.size.width > 0) radius = SGRRadiusArtwork * (frame.size.width / cover.bounds.size.width);
+    if (stage.layer.cornerRadius != radius) stage.layer.cornerRadius = radius;
+}
+
+void SGRPlayerStageReposition(void) {
+    UIView *stage = sg_stage;
+    if (!stage) return;
+    UIView *tilt = showingTilt();
+    UIView *cover = coverIn(tilt);
+    if (!cover) cover = sg_stagedCover;
+    if (cover) placeStage(cover.superview ?: tilt, cover);
 }
 
 // The stage leaves the cover it stood for, which shows again unless the morph hides it.
-static void releaseStagedCover(void) {
-    UIView *cover = sg_stagedCover;
-    sg_stagedCover = nil;
+static void restoreStageCover(UIView *cover) {
     if (cover && cover != sg_hiddenCover) cover.alpha = restingAlpha();
+}
+
+static void releaseStagedCovers(void) {
+    for (UIView *cover in sg_stageHiddenCovers.allObjects) restoreStageCover(cover);
+    [sg_stageHiddenCovers removeAllObjects];
+    sg_stagedCover = nil;
 }
 
 BOOL SGRPlayerStageCover(UIView *stage) {
     UIView *old = sg_stage;
     sg_stage = nil;
     [old removeFromSuperview];
-    releaseStagedCover();
+    releaseStagedCovers();
     if (!stage) return YES;
     UIView *tilt = showingTilt();
     UIView *cover = coverIn(tilt);
     if (!cover) return NO;
     sg_stage = stage;
     sg_stagedCover = cover;
+    [sg_stageHiddenCovers addObject:cover];
     placeStage(tilt, cover);
     cover.alpha = 0;
     return YES;
@@ -342,9 +378,10 @@ static void watchHold(UIView *tilt) {
     // The same value an animation in flight is heading to, so a layout pass never cuts one short.
     scaleCover(tilt, SGRPlayerCoverScale());
     // The stage goes with the cover showing: a new song can scroll the list to another cell during the mix.
+    // Don't restore the old staged cover here - it may still be on screen sliding away and would flash visible.
     if (sg_stage && cover != sg_stagedCover && showingTilt() == tilt) {
-        releaseStagedCover();
         sg_stagedCover = cover;
+        [sg_stageHiddenCovers addObject:cover];
         cover.alpha = 0;
     }
     if (sg_stage && cover == sg_stagedCover) placeStage(tilt, cover);
@@ -433,6 +470,7 @@ static SGRPlayerArtworkWatcher *sg_artworkWatcher;
     %init;
     sg_tilts = [NSHashTable weakObjectsHashTable];
     sg_covers = [NSMapTable weakToWeakObjectsMapTable];
+    sg_stageHiddenCovers = [NSHashTable weakObjectsHashTable];
     sg_artworkWatcher = [SGRPlayerArtworkWatcher new];
     SGAddPlayerStateObserver(sg_artworkWatcher);
     SGRequireClasses(@[
