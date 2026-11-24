@@ -25,6 +25,9 @@
 #import "Shared/LocalFiles/LocalFiles.h"
 #import "Player.h"
 #import "PlayerMix.h"
+#import "Shared/CustomMix/SGCustomMixModel.h"
+#import "Shared/CustomMix/SGCustomMixRuntime.h"
+#include <stdatomic.h>
 
 // UID is an NSString on SPTPlayerTrack (Spotify 9.1.90); older builds without it keep nil (SGTransitionFacts.m).
 @interface SPTPlayerTrack (SGRMixIdentity)
@@ -204,8 +207,47 @@ static void placeBand(SGRMixBand *band, UISlider *slider, CGRect bounds, CGRect 
     band.hidden = NO;
 }
 
+static char kCustomMixLabelKey;
+
+static void updateCustomMixLabel(UISlider *slider) {
+    UILabel *label = objc_getAssociatedObject(slider, &kCustomMixLabelKey);
+    SGCustomMixRuntime *runtime = [SGCustomMixRuntime shared];
+    SGCustomMixRule *rule = [runtime activeRule];
+    BOOL active = SGFlag(SGKeyCustomMix, NO) && rule.enabled && atomic_load_explicit([runtime params]->enabled, memory_order_acquire);
+    if (!active) {
+        label.hidden = YES;
+        return;
+    }
+    if (!label) {
+        label = [UILabel new];
+        label.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
+        label.textColor = [UIColor colorWithWhite:1 alpha:0.72];
+        label.backgroundColor = [UIColor colorWithWhite:0 alpha:0.18];
+        label.layer.cornerRadius = 6;
+        label.layer.cornerCurve = kCACornerCurveContinuous;
+        label.clipsToBounds = YES;
+        label.textAlignment = NSTextAlignmentCenter;
+        label.userInteractionEnabled = NO;
+        objc_setAssociatedObject(slider, &kCustomMixLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [slider addSubview:label];
+    }
+    double progress = [runtime progress];
+    NSString *text = [NSString stringWithFormat:@"  Custom Mix %.0f%%  ", progress * 100.0];
+    if (![label.text isEqualToString:text]) label.text = text;
+    [label sizeToFit];
+    CGRect b = slider.bounds;
+    CGRect track = [slider trackRectForBounds:b];
+    CGFloat w = label.bounds.size.width + 10;
+    CGFloat h = 18;
+    label.frame = CGRectMake(CGRectGetMaxX(track) - w, CGRectGetMinY(track) - h - 4, w, h);
+    if (label.superview != slider) [slider addSubview:label];
+    [slider bringSubviewToFront:label];
+    label.hidden = NO;
+}
+
 void SGRPlayerMixSliderLaidOut(UISlider *slider) {
     [sg_sliders addObject:slider];
+    updateCustomMixLabel(slider);
     SGRMixBands *bands = bandsOf(slider);
     if (!sg_progressOn || !slider.window || hiddenUp(slider)) {
         [bands hide];

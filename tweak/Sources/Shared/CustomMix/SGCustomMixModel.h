@@ -2,6 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+#define SGKeyCustomMix @"spotifyglass.custommix.enabled"
+
 typedef NS_ENUM(NSInteger, SGCustomMixCurve) {
     SGCustomMixCurveLinear = 0,
     SGCustomMixCurveEqualPower = 1,
