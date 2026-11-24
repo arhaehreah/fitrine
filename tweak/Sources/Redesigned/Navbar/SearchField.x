@@ -109,11 +109,14 @@ static void styleSearchField(UIView *button) {
     // Spotify's button clips to its bounds (r=24 clips), which cut the grown capsule off at its edges.
     if (SGUseLegacyGlass() && button.layer.masksToBounds) button.layer.masksToBounds = NO;
 
-    UIVisualEffectView *glass = (UIVisualEffectView *)SGGlassAt(button, 0);
+    UIView *glass = SGGlassAt(button, 0);
     // The listener's material, tint and touch response (Appearance), once per pane: a pass hands back the same one.
-    if (glass.effect && !objc_getAssociatedObject(glass, &kListenerGlassKey)) {
-        glass.effect = SGRGlassEffect();
-        objc_setAssociatedObject(glass, &kListenerGlassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if ([glass isKindOfClass:UIVisualEffectView.class] && !objc_getAssociatedObject(glass, &kListenerGlassKey)) {
+        UIVisualEffectView *effectView = (UIVisualEffectView *)glass;
+        if (effectView.effect) {
+            effectView.effect = SGRGlassEffect();
+            objc_setAssociatedObject(glass, &kListenerGlassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
     }
     // Dark like every glass of the redesign's, rather than by grace of the navigation stack Spotify hosts
     // the page in (TabBar.x).

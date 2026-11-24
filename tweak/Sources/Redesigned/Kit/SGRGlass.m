@@ -73,8 +73,10 @@ void SGRGlassRestyle(UIView *view) {
         SEL get = NSSelectorFromString(@"_glassEffect"), set = NSSelectorFromString(@"_setGlassEffect:");
         if (![view respondsToSelector:get] || ![view respondsToSelector:set]) return;
         if (![((id (*)(id, SEL))objc_msgSend)(view, get) isKindOfClass:UIGlassEffect.class]) return;
-        ((void (*)(id, SEL, id))objc_msgSend)(view, set, SGRGlassEffect());
+        // Mark before setting: a private _setGlassEffect: can trigger a synchronous layout, and layoutSubviews
+        // would re-enter this restyle before the guard was set (infinite recursion on non-default glass settings).
         objc_setAssociatedObject(view, &kRestyledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ((void (*)(id, SEL, id))objc_msgSend)(view, set, SGRGlassEffect());
     }
 }
 

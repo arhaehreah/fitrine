@@ -832,9 +832,13 @@ static CGRect trackFrame(UIView *bar, UIView *card, UIView *strip, CGRect stripF
 }
 
 static void styleNowPlayingBar(UIViewController *container) {
+    static BOOL sg_styling;
+    if (sg_styling) return;
+    sg_styling = YES;
     if (inPresented(container) || (container.isViewLoaded && inSheet(container.view))) {
         UIVisualEffectView *pane = objc_getAssociatedObject(container.view, &kGlassKey);
         if (pane) [pane removeFromSuperview];
+        sg_styling = NO;
         return;
     }
     UIViewController *barVC = container.childViewControllers.firstObject;
@@ -891,7 +895,10 @@ static void styleNowPlayingBar(UIViewController *container) {
     sg_trackFrame = card || strip ? trackFrame(bar, card, strip, stripFrame, container.view, &stripAbove) : CGRectNull;
     placeInline(container);
     CGRect frame = trackFrame(bar, card, strip, stripFrame, container.view, &stripAbove);
-    if (CGRectIsNull(frame)) return;
+    if (CGRectIsNull(frame)) {
+        sg_styling = NO;
+        return;
+    }
 
     CGFloat radius = MIN(kCardRadius, frame.size.height / 2);
     if (card) {
@@ -900,8 +907,8 @@ static void styleNowPlayingBar(UIViewController *container) {
     }
 
     BOOL made = objc_getAssociatedObject(container.view, &kGlassKey) != nil;
-    UIVisualEffectView *glass = (UIVisualEffectView *)SGGlassFor(container.view, &kGlassKey);
-    if (!made) glass.effect = SGRGlassEffect();
+    UIView *glass = SGGlassFor(container.view, &kGlassKey);
+    if (!made && [glass isKindOfClass:UIVisualEffectView.class]) ((UIVisualEffectView *)glass).effect = SGRGlassEffect();
     // Dark whatever the system is set to: the bar is outside the navigation stacks Spotify makes dark, and
     // took the system's light glass on a phone in light mode (TabBar.x).
     if (glass.overrideUserInterfaceStyle != UIUserInterfaceStyleDark) glass.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
@@ -925,6 +932,7 @@ static void styleNowPlayingBar(UIViewController *container) {
         SGLog(@"now playing card in a Jam: %@ at %@, strip %@ at %@ (bar %@)", card.class, NSStringFromCGRect(frame), strip.class,
               NSStringFromCGRect(SGFrameIn(strip, container.view)), NSStringFromCGRect(bar.frame));
     });
+    sg_styling = NO;
 }
 
 %hook _TtC18NowPlaying_BarImpl36NowPlayingBarContainerViewController
