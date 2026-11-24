@@ -279,7 +279,12 @@ static void placeTitleRow(SGRLyricsLayout l) {
 
 BOOL SGRPlayerLyricsAvailable(void) {
     NSString *track = SGKaraokePlayingTrack();
-    return track != nil && SGKaraokeLinesForTrack(track) != nil;
+    if (!track) return NO;
+    if (SGKaraokeLinesForTrack(track)) return YES;
+    // Cached offline lyrics may be on disk but not in memory yet (evicted, or app just went offline).
+    // Kick off a store request so the button becomes enabled once they load.
+    if (!SGKaraokeLooking(track)) SGKaraokeRequestLyrics(track);
+    return NO;
 }
 
 BOOL SGRPlayerLyricsOpen(void) {

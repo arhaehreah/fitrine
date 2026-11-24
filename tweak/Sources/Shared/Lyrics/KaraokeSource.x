@@ -215,7 +215,8 @@ NSArray<SGKaraokeLine *> *SGKaraokeLinesForTrack(NSString *trackID) {
 }
 
 // Main queue only. The track stays asked for through the pause, so the readers asking on every tick
-// send nothing until it is over.
+// send nothing until it is over. Once the pause is over, clear the asked mark so the next request
+// can try the store again — important when the failure was transient (offline, network).
 static void askAgainLater(NSString *trackID) {
     NSUInteger losses = sg_losses[trackID].unsignedIntegerValue;
     sg_losses[trackID] = @(losses + 1);
@@ -224,6 +225,11 @@ static void askAgainLater(NSString *trackID) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(pause * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [sg_asking removeObject:trackID];
         [sg_requested removeObject:trackID];
+        if (!sg_lyrics[trackID] && !sg_storeRequests[trackID]
+            && UIApplication.sharedApplication.applicationState == UIApplicationStateActive
+            && [trackID isEqualToString:SGKaraokePlayingTrack()]) {
+            SGKaraokeRequestLyrics(trackID);
+        }
     });
 }
 
