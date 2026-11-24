@@ -69,6 +69,7 @@
 #import "SpeedPitch.h"
 #import "SGTimePitch.h"
 #import "Shared/Lossless/SGAnchor.h"
+#import "Shared/CustomMix/SGCustomMixRuntime.h"
 
 // The unit stays in this long after speed and pitch both came back to normal.
 static const double kOffAfter = 1.5;
@@ -495,19 +496,66 @@ static const double kGainSlew = 0.5;
 static atomic_uint sg_gainBits;
 static float sg_gainNow = 1;
 
+static SGCustomMixDSPState sg_customMixState;
+static BOOL sg_customMixStateInit;
+
 // Scales a finished buffer, in the hardware's format, ramping each frame from where the last buffer left off.
 // Integers scale as they are, so a fixed point format needs no conversion.
+static void applyCustomMix(float *left, float *right, UInt32 frames, double sampleRate) {
+    SGCustomMixRuntime *runtime = [SGCustomMixRuntime shared];
+    SGCustomMixDSPParams *params = [runtime params];
+    if (!atomic_load_explicit(&params->enabled, memory_order_acquire)) {
+        sg_customMixState.gain = 1.0f;
+        sg_customMixState.progress = 0;
+        return;
+    }
+    if (!sg_customMixStateInit) {
+        SGCustomMixDSPStateInit(&sg_customMixState);
+        sg_customMixStateInit = YES;
+    }
+    [runtime updateForSampleRate:sampleRate];
+    uint64_t now = mach_absolute_time();
+    static mach_timebase_info_data_t tb;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ mach_timebase_info(&tb); });
+    uint64_t nowNanos = now * tb.numer / tb.denom;
+    SGCustomMixDSPProcess(params, &sg_customMixState, nowNanos, left, right, frames);
+}
+
 static void applyGain(Format *hardware, AudioUnitRenderActionFlags *flags, UInt32 frames, AudioBufferList *data) {
     float target = loadFloat(&sg_gainBits);
-    if (target == 1 && sg_gainNow == 1) return;
     UInt32 bytes = atomic_load_explicit(&hardware->bytes, memory_order_relaxed);
     double rate = rateOf(hardware);
     if ((bytes != 2 && bytes != 4) || rate <= 0) return;
+    BOOL isFloat = (atomic_load_explicit(&hardware->flags, memory_order_relaxed) & kAudioFormatFlagIsFloat) != 0;
+    BOOL silence = (*flags & kAudioUnitRenderAction_OutputIsSilence) != 0;
+    if (target == 1 && sg_gainNow == 1) {
+        if (silence) return;
+        BOOL interleaved = data->mNumberBuffers == 1 && data->mBuffers[0].mNumberChannels >= 2;
+        BOOL planar = data->mNumberBuffers >= 2;
+        if (bytes == 4 && isFloat && frames > 0 && frames <= kSGTimePitchMaxFrames && (interleaved || planar)) {
+            static float left[kSGTimePitchMaxFrames], right[kSGTimePitchMaxFrames];
+            float *lptr = left, *rptr = right;
+            if (planar) {
+                lptr = (float *)data->mBuffers[0].mData;
+                rptr = (float *)data->mBuffers[1].mData;
+                if (!lptr || !rptr) return;
+                if (data->mBuffers[0].mDataByteSize < frames * sizeof(float) || data->mBuffers[1].mDataByteSize < frames * sizeof(float)) return;
+                applyCustomMix(lptr, rptr, frames, rate);
+            } else {
+                float *src = (float *)data->mBuffers[0].mData;
+                if (!src || data->mBuffers[0].mDataByteSize < frames * 2 * sizeof(float)) return;
+                for (UInt32 i = 0; i < frames; i++) { left[i] = src[i * 2]; right[i] = src[i * 2 + 1]; }
+                applyCustomMix(left, right, frames, rate);
+                for (UInt32 i = 0; i < frames; i++) { src[i * 2] = left[i]; src[i * 2 + 1] = right[i]; }
+            }
+        }
+        return;
+    }
     float from = sg_gainNow, most = (float)(frames / (kGainSlew * rate));
     float to = from + fmaxf(-most, fminf(target - from, most));
     sg_gainNow = to;
-    if (*flags & kAudioUnitRenderAction_OutputIsSilence) return;
-    BOOL isFloat = (atomic_load_explicit(&hardware->flags, memory_order_relaxed) & kAudioFormatFlagIsFloat) != 0;
+    if (silence) return;
     for (UInt32 b = 0; b < data->mNumberBuffers; b++) {
         AudioBuffer *buffer = &data->mBuffers[b];
         UInt32 channels = MAX(buffer->mNumberChannels, 1u), samples = buffer->mDataByteSize / bytes;
@@ -1213,6 +1261,7 @@ static void rebind(void) {
         mach_timebase_info(&timebase);
         sg_secondsPerTick = (double)timebase.numer / timebase.denom / 1e9;
         sg_outputsQueue = dispatch_queue_create("spotifyglass.outputs", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+        dispatch_async(dispatch_get_main_queue(), ^{ [[SGCustomMixRuntime shared] start]; });
         if (!SGRebindImport("AudioUnitSetProperty", setProperty, (void **)&sg_setProperty) || !sg_setProperty) sg_setProperty = NULL;
         sg_reachable = SGRebindImport("AudioOutputUnitStart", startOutput, (void **)&sg_startOutput) && sg_startOutput;
         if (!sg_reachable) {
