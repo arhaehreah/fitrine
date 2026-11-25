@@ -473,10 +473,3 @@ BOOL SGRPlayerVisualiserShowing(void) {
             && !SGRPlayerMotionShowing());
 }
 
-BOOL SGRPlayerVisualiserShowing(void) {
-    SGRPlayerBackgroundKind background = SGRPlayerBackground();
-    return background == SGRPlayerBackgroundVisualiser
-        || (background == SGRPlayerBackgroundAnimated
-            && SGRPlayerAnimatedFallback() == SGRPlayerBackgroundVisualiser
-            && !SGRPlayerMotionShowing());
-}
