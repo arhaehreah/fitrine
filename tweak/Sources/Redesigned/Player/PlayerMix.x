@@ -213,7 +213,8 @@ static void updateCustomMixLabel(UISlider *slider) {
     UILabel *label = objc_getAssociatedObject(slider, &kCustomMixLabelKey);
     SGCustomMixRuntime *runtime = [SGCustomMixRuntime shared];
     SGCustomMixRule *rule = [runtime activeRule];
-    BOOL active = SGFlag(SGKeyCustomMix, NO) && rule.enabled && atomic_load_explicit([runtime params]->enabled, memory_order_acquire);
+    SGCustomMixDSPParams *params = [runtime params];
+    BOOL active = SGFlag(SGKeyCustomMix, NO) && rule.enabled && params && atomic_load_explicit(&params->enabled, memory_order_acquire);
     if (!active) {
         label.hidden = YES;
         return;
