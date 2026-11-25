@@ -22,6 +22,11 @@
 // the app is in front, the player is not opening or closing, Reduce Motion and Low Power Mode are off
 // and nothing holds it (motionHeld); otherwise it stays still where it was.
 @property (nonatomic) BOOL flows;
+// The sharp artwork layered over a blurred backdrop, fading into it toward the bottom (Fill).
+@property (nonatomic) BOOL fills;
+@property (nonatomic) CGFloat backdropOpacity;
+@property (nonatomic) CGFloat fillOpacity;
+@property (nonatomic) CGFloat fluidOpacity;
 // Fluid artwork instead (SGRFluid.h): the cover itself blurred and slowly turning over the whole of the
 // bounds, under the same conditions for moving as `flows`. Setting one turns the other off.
 @property (nonatomic) BOOL fluid;
@@ -45,14 +50,22 @@
 // A color Spotify already has for the page (the player's background color, the album's wash), made fit
 // to be a field and shown until the first artwork has been read; ignored after that.
 - (void)setProvisionalColor:(UIColor *)color;
+// A preferred field color (e.g. player page accent), fit to field contrast and applied over artwork color.
+- (void)setPreferredColor:(UIColor *)color;
 // Reads the artwork off the main thread and crossfades the result in (without animation when
 // `animated` is NO or the field is not in a window). The same image, or the same non-nil identity,
 // as the last call is a no-op, and a result that lands after a newer call is dropped. nil keeps
 // what the field shows.
 - (void)setArtwork:(UIImage *)image identity:(NSString *)identity animated:(BOOL)animated;
+// Re-reads the current artwork with current style flags (Fill/flow/mainColor).
+- (void)refreshStyleAnimated:(BOOL)animated;
+// Runs after the field has a non-provisional color.
+- (void)whenColored:(void (^)(void))colored;
+// A light blur over the Fill artwork while the lyrics are open.
+- (void)setLyricsBlurred:(BOOL)blurred animated:(BOOL)animated;
 
 // A page that comes in whole rather than a piece at a time: until the field has read its first artwork, a veil
-// of the neutral field lies over everything `page` holds but its pinned ⋯ (SGRPinnedMore), and then fades away
+// of the neutral field lies over everything `page` holds but its pinned â‹¯ (SGRPinnedMore), and then fades away
 // at once, with the cover, the color and the text that arrived under it. The back button is the navigation
 // bar's, outside the page, and stays. A page whose artwork never comes is shown after SGRFieldHoldLimit, and
 // one that knows it has none releases itself (-showPage). Called from the page's own pass, which keeps the

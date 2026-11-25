@@ -50,6 +50,8 @@
 #import "Shared/Player/SpeedPitch.h"
 #import "Player.h"
 
+NSNotificationName const SGRPlayerBlurOpacityDidChangeNotification = @"spotifyglass.redesign.player.blurOpacityDidChange";
+
 // Where the clip starts dissolving into its foot, as a share of its height.
 static const CGFloat kFootFrom = 0.9;
 // The share of the poster's height, at its bottom, whose mean color the foot is.
@@ -566,9 +568,20 @@ static void setCoverShown(BOOL shown, BOOL animated) {
     fadeCoverMask(covers, mask, 0, animated, nil);
 }
 
+static BOOL coverShouldBeShown(void) {
+    SGRPlayerBackgroundKind background = SGRPlayerBackground();
+    return background != SGRPlayerBackgroundFill
+        && !(background == SGRPlayerBackgroundAnimated
+             && (sg_motion || SGRPlayerAnimatedFallback() == SGRPlayerBackgroundFill));
+}
+
+static void updateCoverVisibility(BOOL animated) {
+    setCoverShown(coverShouldBeShown(), animated);
+}
+
 void SGRPlayerMotionFieldLaidOut(void) {
     layOut();
-    setCoverShown(sg_motion == nil, NO);
+    updateCoverVisibility(NO);
 }
 
 static void attachCoverClip(void);
@@ -576,7 +589,7 @@ static void attachCoverClip(void);
 // A clip that came in before the player opened finds no cover to hide at the field's first pass, the covers
 // laying out after it (issue #19: the cover over the clip after a relaunch), so each cover's layout asks too.
 void SGRPlayerMotionCoverLaidOut(void) {
-    setCoverShown(sg_motion == nil, NO);
+    updateCoverVisibility(NO);
     attachCoverClip();
 }
 
@@ -696,7 +709,8 @@ static void clear(BOOL animated) {
     cover(NO);
     holdField();
     animated = animated && seen(old);
-    setCoverShown(YES, animated);
+    updateCoverVisibility(animated);
+    SGRPlayerVisualiserUpdate();
     if (animated) [old disappear:^{ [old removeFromSuperview]; }];
     else [old removeFromSuperview];
 }
@@ -792,16 +806,13 @@ static BOOL beginTrack(NSString *track) {
 }
 
 void SGRPlayerBackgroundDidChange(void) {
-    // A clip left playing under black or a photo would keep the cover masked until the next track.
     clear(YES);
     [sg_follower restart];
     SGRPlayerVisualiserUpdate();
 }
 
-#pragma mark - the ⋯ menu's switch (Shared/Player/SpeedPitch.h)
+#pragma mark - the menu's background switch
 
-// Fluid, Animated and the Visualizer share the field, so the menu moves between them without a restart. The
-// other backgrounds are a field of another kind, chosen on the Player page (PlayerSettings.m).
 BOOL SGPlayerMenuOffersAnimatedArtwork(void) {
     SGRPlayerBackgroundKind kind = SGRPlayerBackground();
     return sg_follower && kind >= SGRPlayerBackgroundFluid && SGRPlayerBackgroundFromArtwork(kind);
@@ -813,15 +824,30 @@ BOOL SGPlayerMenuAnimatedArtwork(void) {
 
 void SGPlayerMenuSetAnimatedArtwork(BOOL on) {
     if (!SGPlayerMenuOffersAnimatedArtwork() || on == SGPlayerMenuAnimatedArtwork()) return;
-    SGSetInt(SGRKeyPlayerBackground, on ? SGRPlayerBackgroundAnimated : SGRPlayerBackgroundFluid);
-    SGLog(@"redesign player: animated artwork switched %@ from the menu", on ? @"on" : @"off");
-    // The playing track is let go, and looked up again when switched on.
-    clear(YES);
-    [sg_follower restart];
-    // From the Visualizer, whose hills go.
-    SGRPlayerVisualiserUpdate();
+    SGRPlayerMenuSetBackground(on ? SGRPlayerBackgroundAnimated : SGRPlayerBackgroundFluid);
 }
 
+void SGRPlayerMenuSetBackground(SGRPlayerBackgroundKind kind) {
+    if (kind < SGRPlayerBackgroundStill || kind > SGRPlayerBackgroundFill) {
+        SGLog(@"redesign player: ignored invalid background style %ld", (long)kind);
+        return;
+    }
+    SGRPlayerBackgroundKind current = SGRPlayerBackground();
+    if (kind == current) return;
+
+    SGSetInt(SGRKeyPlayerBackground, kind);
+    SGRArtworkField *field = SGRPlayerField();
+    SGRPlayerApplyBackgroundToField(field, kind);
+    [field refreshStyleAnimated:YES];
+    if (current == SGRPlayerBackgroundAnimated || kind == SGRPlayerBackgroundAnimated) {
+        clear(YES);
+        [sg_follower restart];
+    }
+    SGRPlayerVisualiserUpdate();
+    SGRPlayerHoldField();
+    updateCoverVisibility(YES);
+    SGLog(@"redesign player: background switched to %@ from the menu", SGRPlayerBackgroundNames()[(NSUInteger)kind]);
+}
 %group SGRVideoSurfaces
 %hook _TtC28NowPlaying_ContentLayersImpl24HorizontalVideoViewModel
 - (void)videoSurfaceDidAttachVideo:(id)surface {

@@ -22,6 +22,8 @@ typedef struct {
     BOOL amoled;
     // The colors of a moving field (SGRFlow.h): the artwork's main color in each quarter and overall.
     BOOL flow;
+    // Fill background: progressive blur layers and a sampled background tint.
+    BOOL fill;
     // The field color from the artwork's main color (the one +tintForImage: finds) rather than its bottom
     // edge: for a page, whose cover dissolves into the field across its whole width, where the bottom edge
     // is a scanned cover's pale border or whatever strip happens to sit at the foot of the picture.
@@ -37,6 +39,8 @@ typedef struct {
 // the dominant color there, its saturation lifted a little and its luminance held between
 // kFlowLuminanceMin and kFlowLuminanceMax, so white text keeps better than 5.5:1 on any of them.
 @property (nonatomic, readonly) NSArray<UIColor *> *flowColors;
+@property (nonatomic, readonly) NSArray<UIImage *> *fillBlurs;
+@property (nonatomic, readonly) UIColor *fillBackgroundColor;
 // nil to the completion when the image has no bitmap to read (a symbol, a CIImage).
 + (void)paletteForImage:(UIImage *)image request:(SGRPaletteRequest)request completion:(void (^)(SGRPalette *palette))completion;
 

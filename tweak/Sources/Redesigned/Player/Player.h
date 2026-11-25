@@ -41,6 +41,7 @@
 // SGRKeyPlayerMotion is the switch the choice replaced: until a choice is stored, it picks Still or Colors.
 #define SGRKeyPlayerBackground @"spotifyglass.redesign.player.background"
 #define SGRKeyPlayerMotion @"spotifyglass.redesign.player.movingBackground"
+#define SGRKeyPlayerAnimatedFallback @"spotifyglass.redesign.player.animatedFallback"
 typedef NS_ENUM(NSInteger, SGRPlayerBackgroundKind) {
     SGRPlayerBackgroundStill,      // the artwork blurred and held still
     SGRPlayerBackgroundColours,    // the artwork's colors drifting (SGRFlow.h)
@@ -49,21 +50,36 @@ typedef NS_ENUM(NSInteger, SGRPlayerBackgroundKind) {
     SGRPlayerBackgroundVisualiser, // a spectrum of the song over Fluid held still (PlayerVisualiser.m)
     SGRPlayerBackgroundBlack,      // pure black, nothing of the artwork (PlayerBackdrop.m)
     SGRPlayerBackgroundPhoto,      // a photo of the user's own, darkened for the text over it (PlayerBackdrop.m)
+    SGRPlayerBackgroundFill,       // the cover sharp at top, fading into progressive blur and a sampled tint (SGRField.h)
 };
-// The player's ⋯ menu switches between Fluid, Animated and Visualizer, which share the Fluid field, without a restart.
+// The player's background choice, and the fallback used when Animated has no Canvas.
 SGRPlayerBackgroundKind SGRPlayerBackground(void);
-// Whether the kind is drawn from the artwork (Still to Visualizer), not black or a photo.
+SGRPlayerBackgroundKind SGRPlayerAnimatedFallback(void);
+// Whether the kind is drawn from the artwork (Still/Colors/Fluid/Animated/Visualiser/Fill), not black or a photo.
 static inline BOOL SGRPlayerBackgroundFromArtwork(SGRPlayerBackgroundKind kind) {
-    return kind <= SGRPlayerBackgroundVisualiser;
+    return kind <= SGRPlayerBackgroundVisualiser || kind == SGRPlayerBackgroundFill;
 }
-// The artwork's choice last picked, Still to Visualizer: what the field is made as under black or a photo, and what
-// "Artwork" goes back to. Written by the Player page as a segment is picked.
+// The artwork's choice last picked (artwork-derived backgrounds only): what the field is made as under black or a
+// photo, and what "Artwork" goes back to. Written by the Player page as a segment is picked.
 #define SGRKeyPlayerArtworkBackground @"spotifyglass.redesign.player.background.artwork"
 SGRPlayerBackgroundKind SGRPlayerArtworkBackground(void);
 // The Player page stored another choice: the clip and the Visualizer follow it at once (PlayerMotion.x).
 void SGRPlayerBackgroundDidChange(void);
-// The names of the artwork's choices, Still to Visualizer, in order: the Player page's segments.
+// The names of the artwork's choices in order, including Fill.
 NSArray<NSString *> *SGRPlayerBackgroundNames(void);
+
+// Background opacity/blur controls (PlayerSettings.m). Values are 0..100.
+#define SGRKeyPlayerBackdropOpacity @"spotifyglass.redesign.player.backdropOpacity"
+#define SGRKeyPlayerFillOpacity @"spotifyglass.redesign.player.fillOpacity"
+#define SGRKeyPlayerFluidOpacity @"spotifyglass.redesign.player.fluidOpacity"
+#define SGRKeyPlayerCanvasBlurOpacity @"spotifyglass.redesign.player.canvasBlurOpacity"
+#define SGRKeyPlayerLyricsBlurOpacity @"spotifyglass.redesign.player.lyricsBlurOpacity"
+#define SGRKeyPlayerVisualiserBlurOpacity @"spotifyglass.redesign.player.visualiserBlurOpacity"
+extern NSNotificationName const SGRPlayerBlurOpacityDidChangeNotification;
+// Applies the selected background kind and its opacity settings to a field.
+void SGRPlayerApplyBackgroundToField(SGRArtworkField *field, SGRPlayerBackgroundKind kind);
+// Switch background from the player menu; handles Animated/follower/visualizer updates.
+void SGRPlayerMenuSetBackground(SGRPlayerBackgroundKind kind);
 
 #pragma mark - black or a photo behind the player (PlayerBackdrop.m)
 

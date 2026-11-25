@@ -466,62 +466,17 @@ static void shape(CAShapeLayer *layer, const float *bands, CGFloat width, CGFloa
 static SGRVisualiserView *sg_view;
 
 BOOL SGRPlayerVisualiserShowing(void) {
-    return SGRPlayerBackground() == SGRPlayerBackgroundVisualiser;
+    SGRPlayerBackgroundKind background = SGRPlayerBackground();
+    return background == SGRPlayerBackgroundVisualiser
+        || (background == SGRPlayerBackgroundAnimated
+            && SGRPlayerAnimatedFallback() == SGRPlayerBackgroundVisualiser
+            && !SGRPlayerMotionShowing());
 }
 
-UIView *SGRPlayerVisualiserPreview(void) {
-    static __weak SGRVisualiserView *sg_preview;
-    SGRVisualiserView *preview = sg_preview ?: [[SGRVisualiserView alloc] initWithFrame:CGRectZero];
-    sg_preview = preview;
-    return preview;
-}
-
-// The hills from the top of the field to the foot of its bleed, standing on the screen's foot.
-static void layOut(SGRArtworkField *field) {
-    if (sg_view.superview != field) [field addSubview:sg_view];
-    else if (field.subviews.lastObject != sg_view) [field bringSubviewToFront:sg_view];
-    CGSize size = field.bounds.size;
-    CGFloat screen = field.window.bounds.size.height ?: size.height;
-    CGRect frame = CGRectMake(0, 0, size.width, MAX(size.height, screen) + field.bleed.bottom);
-    if (!CGRectEqualToRect(sg_view.frame, frame)) sg_view.frame = frame;
-    sg_view.baseline = screen;
-    sg_view.screenHeight = screen;
-}
-
-void SGRPlayerVisualiserUpdate(void) {
-    SGRArtworkField *field = SGRPlayerField();
-    // Not over an Animated artwork clip still playing: the Player page can change the choice under it, which the
-    // player takes up when it next starts.
-    BOOL wanted = SGRPlayerVisualiserShowing() && field && !SGRPlayerMotionShowing();
-    if (!wanted) {
-        SGRVisualiserView *old = sg_view;
-        sg_view = nil;
-        if (old.window) [old disappear:^{ [old removeFromSuperview]; }];
-        else [old removeFromSuperview];
-        return;
-    }
-    BOOL made = !sg_view;
-    if (made) sg_view = [[SGRVisualiserView alloc] initWithFrame:CGRectZero];
-    layOut(field);
-    if (made) {
-        [sg_view setBlurred:SGRPlayerLyricsOpen() animated:NO];
-        [sg_view appear:field.window != nil];
-        SGLog(@"redesign player: visualizer on the field");
-    } else {
-        BOOL open = SGRPlayerLyricsOpen();
-        if (open != sg_view.blurred) [sg_view setBlurred:open animated:sg_view.window != nil];
-    }
-}
-
-#pragma mark - the ⋯ menu's switch
-
-void SGRPlayerMenuSetBackground(SGRPlayerBackgroundKind kind) {
-    SGRPlayerBackgroundKind current = SGRPlayerBackground();
-    if (!SGPlayerMenuOffersAnimatedArtwork() || kind < SGRPlayerBackgroundFluid || kind == current) return;
-    // Animated's own switch lets the clip go or looks it up, and calls back here.
-    if (kind == SGRPlayerBackgroundAnimated || current == SGRPlayerBackgroundAnimated) SGPlayerMenuSetAnimatedArtwork(kind == SGRPlayerBackgroundAnimated);
-    if (kind != SGRPlayerBackgroundAnimated) SGSetInt(SGRKeyPlayerBackground, kind);
-    SGLog(@"redesign player: background switched to %@ from the menu", SGRPlayerBackgroundNames()[(NSUInteger)kind]);
-    SGRPlayerHoldField();
-    SGRPlayerVisualiserUpdate();
+BOOL SGRPlayerVisualiserShowing(void) {
+    SGRPlayerBackgroundKind background = SGRPlayerBackground();
+    return background == SGRPlayerBackgroundVisualiser
+        || (background == SGRPlayerBackgroundAnimated
+            && SGRPlayerAnimatedFallback() == SGRPlayerBackgroundVisualiser
+            && !SGRPlayerMotionShowing());
 }

@@ -62,18 +62,44 @@ SGRArtworkField *SGRPlayerField(void) {
 
 SGRPlayerBackgroundKind SGRPlayerBackground(void) {
     NSInteger kind = SGInt(SGRKeyPlayerBackground, SGEnabled(SGRKeyPlayerMotion) ? SGRPlayerBackgroundColours : SGRPlayerBackgroundStill);
-    return kind >= SGRPlayerBackgroundStill && kind <= SGRPlayerBackgroundPhoto ? kind : SGRPlayerBackgroundColours;
+    return kind >= SGRPlayerBackgroundStill && kind <= SGRPlayerBackgroundFill ? kind : SGRPlayerBackgroundColours;
+}
+
+SGRPlayerBackgroundKind SGRPlayerAnimatedFallback(void) {
+    static const SGRPlayerBackgroundKind choices[] = {
+        SGRPlayerBackgroundStill,
+        SGRPlayerBackgroundColours,
+        SGRPlayerBackgroundFluid,
+        SGRPlayerBackgroundVisualiser,
+        SGRPlayerBackgroundFill,
+    };
+    NSInteger index = SGInt(SGRKeyPlayerAnimatedFallback, (NSInteger)(sizeof choices / sizeof *choices) - 1);
+    if (index < 0 || index >= (NSInteger)(sizeof choices / sizeof *choices)) index = (NSInteger)(sizeof choices / sizeof *choices) - 1;
+    return choices[index];
 }
 
 SGRPlayerBackgroundKind SGRPlayerArtworkBackground(void) {
     SGRPlayerBackgroundKind kind = SGRPlayerBackground();
     if (SGRPlayerBackgroundFromArtwork(kind)) return kind;
     NSInteger last = SGInt(SGRKeyPlayerArtworkBackground, SGRPlayerBackgroundColours);
-    return last >= SGRPlayerBackgroundStill && last <= SGRPlayerBackgroundVisualiser ? last : SGRPlayerBackgroundColours;
+    return last >= SGRPlayerBackgroundStill && last <= SGRPlayerBackgroundFill && SGRPlayerBackgroundFromArtwork((SGRPlayerBackgroundKind)last)
+        ? (SGRPlayerBackgroundKind)last : SGRPlayerBackgroundColours;
 }
 
 NSArray<NSString *> *SGRPlayerBackgroundNames(void) {
-    return @[@"Still", @"Colors", @"Fluid", @"Animated", @"Visualizer"];
+    return @[@"Still", @"Colors", @"Fluid", @"Animated", @"Visualizer", @"Fill"];
+}
+
+void SGRPlayerApplyBackgroundToField(SGRArtworkField *field, SGRPlayerBackgroundKind kind) {
+    if (!field) return;
+    if (kind == SGRPlayerBackgroundAnimated) kind = SGRPlayerAnimatedFallback();
+    BOOL fluid = kind == SGRPlayerBackgroundFluid || kind == SGRPlayerBackgroundVisualiser;
+    field.flows = kind == SGRPlayerBackgroundColours;
+    field.fluid = fluid;
+    field.fills = kind == SGRPlayerBackgroundFill;
+    field.backdropOpacity = SGInt(SGRKeyPlayerBackdropOpacity, 100) / 100.0;
+    field.fillOpacity = SGInt(SGRKeyPlayerFillOpacity, 100) / 100.0;
+    field.fluidOpacity = SGInt(SGRKeyPlayerFluidOpacity, 100) / 100.0;
 }
 
 // A paused song holds the colors still, the way it rests the cover (PlayerArtwork.x), and so does what lies over
@@ -123,8 +149,7 @@ static SGRArtworkField *fieldIn(UIView *plane) {
     field.showsBackdrop = YES;
     // Under black or a photo the field is made as the artwork's last choice, so going back to it needs no restart.
     SGRPlayerBackgroundKind background = SGRPlayerArtworkBackground();
-    field.flows = background == SGRPlayerBackgroundColours;
-    field.fluid = background >= SGRPlayerBackgroundFluid;
+    SGRPlayerApplyBackgroundToField(field, background);
     field.motionHeld = fieldHeld();
     field.bleed = kBleed;
     objc_setAssociatedObject(plane, &kFieldKey, field, OBJC_ASSOCIATION_RETAIN_NONATOMIC);

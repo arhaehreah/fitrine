@@ -218,21 +218,20 @@ static NSArray<UIMenuElement *> *playerItems(void) {
     NSMutableArray<UIMenuElement *> *items = [NSMutableArray arrayWithObject:soundMenu()];
     if (![sheetKind() isEqualToString:@"episode"])
         [items addObject:SGRLyricsStyleMenu(@"Lyrics Style")];
-    if (SGPlayerMenuOffersAnimatedArtwork()) {
-        // Buttons named for what they do, not checkmarks: the HIG's changeable label for a toggled item.
-        NSArray<NSArray *> *backgrounds = @[
-            @[@(SGRPlayerBackgroundFluid), @"Show Fluid Artwork", @"drop"],
-            @[@(SGRPlayerBackgroundAnimated), @"Show Animated Artwork", @"play.rectangle.on.rectangle"],
-            @[@(SGRPlayerBackgroundVisualiser), @"Show Visualizer", @"waveform"],
-        ];
-        SGRPlayerBackgroundKind current = SGRPlayerBackground();
-        for (NSArray *background in backgrounds) {
-            SGRPlayerBackgroundKind kind = [background[0] integerValue];
-            if (kind == current) continue;
-            [items addObject:[UIAction actionWithTitle:background[1] image:symbol(background[2]) identifier:nil
-                                               handler:^(UIAction *action) { SGRPlayerMenuSetBackground(kind); }]];
-        }
+    NSArray<NSString *> *names = SGRPlayerBackgroundNames();
+    SGRPlayerBackgroundKind current = SGRPlayerBackground();
+    NSMutableArray<UIMenuElement *> *choices = [NSMutableArray arrayWithCapacity:names.count];
+    for (NSUInteger index = 0; index < names.count; index++) {
+        SGRPlayerBackgroundKind kind = (SGRPlayerBackgroundKind)index;
+        UIAction *choice = [UIAction actionWithTitle:names[index] image:nil identifier:nil handler:^(UIAction *action) {
+            SGRPlayerMenuSetBackground(kind);
+        }];
+        choice.state = kind == current ? UIMenuElementStateOn : UIMenuElementStateOff;
+        [choices addObject:choice];
     }
+    UIMenu *backgrounds = [UIMenu menuWithTitle:@"Background Style" image:symbol(@"circle.lefthalf.filled") identifier:nil
+                                        options:UIMenuOptionsSingleSelection children:choices];
+    [items addObject:backgrounds];
     UIAction *lyrics = lyricsSourceItem();
     if (lyrics) [items addObject:lyrics];
     return items;
