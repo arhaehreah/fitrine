@@ -7,6 +7,12 @@ static NSString *const kStoreFile = @"custom-mix.json";
 @property (nonatomic, strong) dispatch_queue_t queue;
 @end
 
+static BOOL sameURI(NSString *a, NSString *b) {
+    NSString *left = a.length ? a : @"";
+    NSString *right = b.length ? b : @"";
+    return [left isEqualToString:right];
+}
+
 @implementation SGCustomMixStore
 
 + (instancetype)shared {
@@ -104,6 +110,42 @@ static NSString *const kStoreFile = @"custom-mix.json";
 - (SGCustomMixRule *)effectiveRuleForFromURI:(NSString *)fromURI toURI:(NSString *)toURI contextURI:(NSString *)contextURI {
     SGCustomMixRule *rule = [self ruleForFromURI:fromURI toURI:toURI contextURI:contextURI];
     return rule ?: [SGCustomMixRule defaultRule];
+}
+
+- (void)upsertRule:(SGCustomMixRule *)rule forFromURI:(NSString *)fromURI toURI:(NSString *)toURI contextURI:(NSString *)contextURI {
+    if (![rule isKindOfClass:SGCustomMixRule.class]) return;
+    dispatch_sync(_queue, ^{
+        NSString *f = fromURI.length ? fromURI : @"";
+        NSString *t = toURI.length ? toURI : @"";
+        NSString *c = contextURI.length ? contextURI : @"";
+        NSInteger idx = -1;
+        for (NSInteger i = 0; i < (NSInteger)_items.count; i++) {
+            SGCustomMixRule *item = _items[i];
+            if (sameURI(item.fromURI, f) && sameURI(item.toURI, t) && sameURI(item.contextURI, c)) { idx = i; break; }
+        }
+        SGCustomMixRule *copy = [rule copy];
+        copy.fromURI = fromURI.length ? fromURI : nil;
+        copy.toURI = toURI.length ? toURI : nil;
+        copy.contextURI = contextURI.length ? contextURI : nil;
+        if (idx >= 0) _items[idx] = copy;
+        else [_items insertObject:copy atIndex:0];
+        [self saveLocked];
+    });
+}
+
+- (void)removeRuleForFromURI:(NSString *)fromURI toURI:(NSString *)toURI contextURI:(NSString *)contextURI {
+    dispatch_sync(_queue, ^{
+        NSString *f = fromURI.length ? fromURI : @"";
+        NSString *t = toURI.length ? toURI : @"";
+        NSString *c = contextURI.length ? contextURI : @"";
+        for (NSInteger i = (NSInteger)_items.count - 1; i >= 0; i--) {
+            SGCustomMixRule *item = _items[i];
+            if (sameURI(item.fromURI, f) && sameURI(item.toURI, t) && sameURI(item.contextURI, c)) {
+                [_items removeObjectAtIndex:i];
+            }
+        }
+        [self saveLocked];
+    });
 }
 
 @end

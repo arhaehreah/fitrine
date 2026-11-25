@@ -10,6 +10,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setRules:(NSArray<SGCustomMixRule *> *)rules;
 - (nullable SGCustomMixRule *)ruleForFromURI:(nullable NSString *)fromURI toURI:(nullable NSString *)toURI contextURI:(nullable NSString *)contextURI;
 - (SGCustomMixRule *)effectiveRuleForFromURI:(nullable NSString *)fromURI toURI:(nullable NSString *)toURI contextURI:(nullable NSString *)contextURI;
+- (void)upsertRule:(SGCustomMixRule *)rule forFromURI:(nullable NSString *)fromURI toURI:(nullable NSString *)toURI contextURI:(nullable NSString *)contextURI;
+- (void)removeRuleForFromURI:(nullable NSString *)fromURI toURI:(nullable NSString *)toURI contextURI:(nullable NSString *)contextURI;
 - (void)reload;
 - (NSString *)storePath;
 

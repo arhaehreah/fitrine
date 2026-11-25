@@ -16,6 +16,12 @@ typedef NS_ENUM(NSInteger, SGCustomMixFilterMode) {
     SGCustomMixFilterHighPass = 2,
 };
 
+typedef NS_ENUM(NSInteger, SGCustomMixTriggerMode) {
+    SGCustomMixTriggerEnd = 0,
+    SGCustomMixTriggerSeconds = 1,
+    SGCustomMixTriggerPercent = 2,
+};
+
 @interface SGCustomMixRule : NSObject <NSSecureCoding, NSCopying>
 
 @property (nonatomic, copy, nullable) NSString *fromURI;
@@ -30,11 +36,15 @@ typedef NS_ENUM(NSInteger, SGCustomMixFilterMode) {
 @property (nonatomic) double filterStartHz;
 @property (nonatomic) double filterEndHz;
 @property (nonatomic) BOOL enabled;
+@property (nonatomic) SGCustomMixTriggerMode triggerMode;
+@property (nonatomic) double triggerValue;
 
 + (instancetype)defaultRule;
 - (BOOL)matchesFromURI:(nullable NSString *)fromURI toURI:(nullable NSString *)toURI contextURI:(nullable NSString *)contextURI;
 - (NSDictionary *)dictionaryRepresentation;
 + (nullable instancetype)ruleFromDictionary:(NSDictionary *)dictionary;
+- (double)triggerPositionForTrackDuration:(double)duration;
+- (BOOL)hasExplicitTrigger;
 
 @end
 

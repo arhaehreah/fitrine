@@ -13,7 +13,7 @@
 // The pills over the first row (own-playlist/01.txt:33) are a cell of the list: Add, Mix, Notes, Video,
 // Edit, Sort and Name & details. The row is closed up -- ListUXPlatform_LayoutKit.ListLayout gives every
 // item its height, so the cell can only close up where the layout asks it how tall it wants to be -- and
-// Sort and Mix are put on the ⋯ sheet instead (PlaylistMenu.x), where the rest of the row already is. The
+// Sort and Mix are put on the â‹¯ sheet instead (PlaylistMenu.x), where the rest of the row already is. The
 // cell is handed over as it lays out, so the sheet has Spotify's own buttons to fire.
 //
 // Not every cell of the list is a track row. Under the tracks Spotify puts the extender -- Recommended
@@ -25,11 +25,38 @@
 #import "Redesigned/Kit/SGRKit.h"
 #import "Redesigned/Kit/SGRPress.h"
 #import "Playlist.h"
+#import "PlaylistTransition.h"
+#import <objc/message.h>
 
 // Under the text rather than the whole row, as the Music app draws it; the trailing end clears the page margin.
 static const CGFloat kHairline = 0.5, kHairlineGap = 12;
+static const CGFloat kMixButtonSide = 28;
 
-static char kRowKey, kTrackRowKey, kArtKey, kArtHolderKey, kSubtitleKey, kLineKey, kToolbarKey;
+static char kRowKey, kTrackRowKey, kArtKey, kArtHolderKey, kSubtitleKey, kLineKey, kToolbarKey, kMixButtonKey, kMixPairKey;
+
+static UIView *identified(UIView *root, NSString *identifier, const void *cacheKey);
+static void clearSurface(UIView *view);
+static void applyHairline(UIView *row, CGFloat leading);
+static UIView *artHolderIn(UIView *row);
+static UIView *rowIn(UIView *cell);
+
+@interface SGRTrackMixPair : NSObject
+@property (nonatomic, copy) NSString *fromURI;
+@property (nonatomic, copy) NSString *toURI;
+@property (nonatomic, copy) NSString *fromName;
+@property (nonatomic, copy) NSString *toName;
+@property (nonatomic, copy) NSString *contextURI;
+@end
+
+@implementation SGRTrackMixPair
+@end
+
+@interface SGRTrackMixButton : UIButton
+@property (nonatomic, strong) SGRTrackMixPair *pair;
+@end
+
+@implementation SGRTrackMixButton
+@end
 
 @interface SGRRowArtHolder : NSObject
 @property (nonatomic, weak) UIView *view;
@@ -91,13 +118,174 @@ static UIView *rowIn(UIView *cell) {
     return identified(cell, @"Encore.ListRow", &kRowKey) ?: identified(cell, @"Track.Row", &kTrackRowKey);
 }
 
+static NSString *textOfLabel(UILabel *label) {
+    NSString *text = [label.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return text.length ? text : nil;
+}
+
+static NSString *firstLabelText(UIView *root, NSString *identifier, const void *cacheKey) {
+    UIView *container = identified(root, identifier, cacheKey);
+    __block NSString *text = nil;
+    SGForEachView(container ?: root, ^(UIView *v) {
+        if (text || ![v isKindOfClass:UILabel.class]) return;
+        NSString *candidate = textOfLabel((UILabel *)v);
+        if (candidate.length) text = candidate;
+    });
+    return text;
+}
+
+static NSString *stringFromObject(id value) {
+    if ([value isKindOfClass:NSString.class]) return [(NSString *)value length] ? value : nil;
+    if ([value isKindOfClass:NSURL.class]) return ((NSURL *)value).absoluteString;
+    return nil;
+}
+
+static NSString *uriFromObject(id obj) {
+    if (!obj) return nil;
+    NSString *direct = stringFromObject(obj);
+    if ([direct hasPrefix:@"spotify:track:"] || [direct hasPrefix:@"spotify:episode:"]) return direct;
+    if (![obj isKindOfClass:NSObject.class]) return nil;
+    NSObject *o = (NSObject *)obj;
+    for (NSString *selName in @[@"uri", @"URI", @"entityUri", @"entityURI", @"trackUri", @"trackURI", @"canonicalUri", @"canonicalURI"]) {
+        SEL sel = NSSelectorFromString(selName);
+        if (![o respondsToSelector:sel]) continue;
+        id value = ((id (*)(id, SEL))objc_msgSend)(o, sel);
+        NSString *uri = stringFromObject(value);
+        if ([uri hasPrefix:@"spotify:track:"] || [uri hasPrefix:@"spotify:episode:"]) return uri;
+    }
+    return nil;
+}
+
+static id modelFromResponder(UIResponder *responder) {
+    for (UIResponder *r = responder; r; r = r.nextResponder) {
+        if (![r isKindOfClass:NSObject.class]) continue;
+        NSObject *obj = (NSObject *)r;
+        for (NSString *selName in @[@"viewModel", @"model", @"entity", @"track", @"item"]) {
+            SEL sel = NSSelectorFromString(selName);
+            if (![obj respondsToSelector:sel]) continue;
+            id value = ((id (*)(id, SEL))objc_msgSend)(obj, sel);
+            if (uriFromObject(value)) return value;
+        }
+        NSString *uri = uriFromObject(obj);
+        if (uri) return obj;
+    }
+    return nil;
+}
+
+static UICollectionView *collectionViewOf(UIView *view) {
+    for (UIView *v = view; v; v = v.superview) {
+        if ([v isKindOfClass:UICollectionView.class]) return (UICollectionView *)v;
+    }
+    return nil;
+}
+
+static NSString *contextURIForView(UIView *view) {
+    UIViewController *vc = SGRPlaylistHeaderOf(view);
+    if (!vc) return nil;
+    SEL controllerSel = NSSelectorFromString(@"headerController");
+    SEL modelSel = NSSelectorFromString(@"defaultHeaderViewModel");
+    id controller = [vc respondsToSelector:controllerSel] ? ((id (*)(id, SEL))objc_msgSend)(vc, controllerSel) : nil;
+    id model = [controller respondsToSelector:modelSel] ? ((id (*)(id, SEL))objc_msgSend)(controller, modelSel) : nil;
+    if ([model isKindOfClass:NSObject.class]) {
+        NSObject *obj = (NSObject *)model;
+        for (NSString *name in @[@"uri", @"URI", @"entityUri", @"entityURI", @"playlistUri", @"playlistURI"]) {
+            SEL sel = NSSelectorFromString(name);
+            if (![obj respondsToSelector:sel]) continue;
+            NSString *uri = stringFromObject(((id (*)(id, SEL))objc_msgSend)(obj, sel));
+            if (uri.length) return uri;
+        }
+    }
+    return nil;
+}
+
+static SGRTrackMixPair *pairForCell(UIView *cell) {
+    if (!SGCustomMixPlaylistTransitionEnabled()) return nil;
+    UIView *row = rowIn(cell);
+    if (!row) return nil;
+    UICollectionView *collection = collectionViewOf(cell);
+    if (![collection isKindOfClass:UICollectionView.class]) return nil;
+    NSIndexPath *indexPath = [collection indexPathForCell:(UICollectionViewCell *)cell];
+    if (!indexPath) return nil;
+    NSInteger itemCount = [collection numberOfItemsInSection:indexPath.section];
+    if (indexPath.item < 0 || indexPath.item + 1 >= itemCount) return nil;
+
+    NSIndexPath *nextPath = [NSIndexPath indexPathForItem:indexPath.item + 1 inSection:indexPath.section];
+    UICollectionViewCell *nextCell = [collection cellForItemAtIndexPath:nextPath];
+    UIView *nextRow = nextCell ? rowIn(nextCell) : nil;
+    if (!nextRow) return nil;
+
+    NSString *fromURI = uriFromObject(modelFromResponder(cell)) ?: uriFromObject(modelFromResponder(row));
+    NSString *toURI = uriFromObject(modelFromResponder(nextCell)) ?: uriFromObject(modelFromResponder(nextRow));
+    if (!fromURI.length || !toURI.length || [fromURI isEqualToString:toURI]) return nil;
+
+    SGRTrackMixPair *pair = [SGRTrackMixPair new];
+    pair.fromURI = fromURI;
+    pair.toURI = toURI;
+    pair.fromName = firstLabelText(row, @"Track.Row.Content.Title", NULL) ?: @"Current track";
+    pair.toName = firstLabelText(nextRow, @"Track.Row.Content.Title", NULL) ?: @"Next track";
+    pair.contextURI = contextURIForView(cell);
+    return pair;
+}
+
+static void openTransitionEditor(SGRTrackMixButton *button) {
+    SGRTrackMixPair *pair = button.pair;
+    if (!pair.fromURI.length || !pair.toURI.length) return;
+    SGCustomMixPresentTransitionEditor(button, pair.fromURI, pair.fromName, pair.toURI, pair.toName, pair.contextURI);
+}
+
+static void applyMixButton(UIView *cell, UIView *row) {
+    SGRTrackMixButton *button = objc_getAssociatedObject(cell, &kMixButtonKey);
+    SGRTrackMixPair *pair = row ? pairForCell(cell) : nil;
+    if (!pair) {
+        button.hidden = YES;
+        objc_setAssociatedObject(cell, &kMixPairKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    if (!button) {
+        button = [SGRTrackMixButton buttonWithType:UIButtonTypeSystem];
+        button.frame = CGRectZero;
+        button.tintColor = UIColor.whiteColor;
+        button.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+        button.layer.cornerRadius = kMixButtonSide / 2.0;
+        button.layer.cornerCurve = kCACornerCurveContinuous;
+        UIImage *img = [UIImage systemImageNamed:@"slider.horizontal.2.square"];
+        if (!img) img = [UIImage systemImageNamed:@"waveform"];
+        [button setImage:img forState:UIControlStateNormal];
+        [button addTarget:button action:@selector(sgr_noop) forControlEvents:UIControlEventTouchUpInside];
+        [button removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [button addTarget:button action:@selector(sgr_openTransition) forControlEvents:UIControlEventTouchUpInside];
+        objc_setAssociatedObject(cell, &kMixButtonKey, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [cell addSubview:button];
+    }
+
+    if (![button.superview isEqual:cell]) [cell addSubview:button];
+    button.pair = pair;
+    objc_setAssociatedObject(cell, &kMixPairKey, pair, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    UIView *menu = identified(row, @"Components.UI.ContextMenuButton", NULL);
+    CGRect menuFrame = menu ? [cell convertRect:menu.bounds fromView:menu] : CGRectZero;
+    CGFloat x = menu ? CGRectGetMinX(menuFrame) - kMixButtonSide - 8 : cell.bounds.size.width - SGRSideMargin - kMixButtonSide;
+    CGFloat y = menu ? CGRectGetMidY(menuFrame) - kMixButtonSide / 2.0 : (cell.bounds.size.height - kMixButtonSide) / 2.0;
+    button.frame = CGRectMake(x, y, kMixButtonSide, kMixButtonSide);
+    button.hidden = NO;
+    button.accessibilityLabel = @"Set transition point";
+}
+
+@implementation SGRTrackMixButton (Action)
+- (void)sgr_noop {}
+- (void)sgr_openTransition { openTransitionEditor(self); }
+@end
+
 // YES when the cell holds a track row.
 static BOOL applyRow(UIView *cell) {
     clearSurface(cell);
     UIView *row = rowIn(cell);
     // The Music app's highlight under the finger (SGRPress.h), on the rows only: not the pills or a heading.
     SGRPressRow(cell, row != nil);
-    if (!row) return NO;
+    if (!row) {
+        applyMixButton(cell, nil);
+        return NO;
+    }
     clearSurface(row);
 
     CGFloat leading = SGRSideMargin + 48 + kHairlineGap;
@@ -120,6 +308,7 @@ static BOOL applyRow(UIView *cell) {
     });
 
     applyHairline(row, leading);
+    applyMixButton(cell, row);
     return YES;
 }
 

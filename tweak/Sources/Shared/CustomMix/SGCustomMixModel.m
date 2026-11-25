@@ -29,6 +29,8 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
     rule.filterStartHz = 20000;
     rule.filterEndHz = 20000;
     rule.enabled = NO;
+    rule.triggerMode = SGCustomMixTriggerEnd;
+    rule.triggerValue = 0;
     return rule;
 }
 
@@ -39,6 +41,8 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
         _filterStartHz = 20000;
         _filterEndHz = 20000;
         _enabled = NO;
+        _triggerMode = SGCustomMixTriggerEnd;
+        _triggerValue = 0;
     }
     return self;
 }
@@ -57,6 +61,10 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
         _filterStartHz = [coder decodeDoubleForKey:@"filterStartHz"];
         _filterEndHz = [coder decodeDoubleForKey:@"filterEndHz"];
         _enabled = [coder decodeBoolForKey:@"enabled"];
+        _triggerMode = (SGCustomMixTriggerMode)clampInt([coder decodeIntegerForKey:@"triggerMode"], 0, 2);
+        _triggerValue = [coder decodeDoubleForKey:@"triggerValue"];
+        if (_triggerMode == SGCustomMixTriggerPercent) _triggerValue = clampDouble(_triggerValue, 0.0, 100.0);
+        else if (_triggerMode == SGCustomMixTriggerSeconds) _triggerValue = clampDouble(_triggerValue, 0.0, 24.0 * 60.0 * 60.0);
     }
     return self;
 }
@@ -74,6 +82,8 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
     [coder encodeDouble:_filterStartHz forKey:@"filterStartHz"];
     [coder encodeDouble:_filterEndHz forKey:@"filterEndHz"];
     [coder encodeBool:_enabled forKey:@"enabled"];
+    [coder encodeInteger:_triggerMode forKey:@"triggerMode"];
+    [coder encodeDouble:_triggerValue forKey:@"triggerValue"];
 }
 
 - (id)copyWithZone:(NSZone *)zone {
@@ -90,6 +100,8 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
     rule.filterStartHz = _filterStartHz;
     rule.filterEndHz = _filterEndHz;
     rule.enabled = _enabled;
+    rule.triggerMode = _triggerMode;
+    rule.triggerValue = _triggerValue;
     return rule;
 }
 
@@ -114,7 +126,23 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
         @"filterStartHz": @(_filterStartHz),
         @"filterEndHz": @(_filterEndHz),
         @"enabled": @(_enabled),
+        @"triggerMode": @(_triggerMode),
+        @"triggerValue": @(_triggerValue),
     };
+}
+
+- (BOOL)hasExplicitTrigger {
+    return _triggerMode == SGCustomMixTriggerSeconds || _triggerMode == SGCustomMixTriggerPercent;
+}
+
+- (double)triggerPositionForTrackDuration:(double)duration {
+    if (_triggerMode == SGCustomMixTriggerSeconds) return clampDouble(_triggerValue, 0.0, duration > 0 ? duration : _triggerValue);
+    if (_triggerMode == SGCustomMixTriggerPercent) {
+        double pct = clampDouble(_triggerValue, 0.0, 100.0);
+        if (duration <= 0) return 0;
+        return clampDouble(duration * (pct / 100.0), 0.0, duration);
+    }
+    return -1;
 }
 
 + (nullable instancetype)ruleFromDictionary:(NSDictionary *)dictionary {
@@ -135,6 +163,12 @@ static NSInteger clampInt(NSInteger value, NSInteger min, NSInteger max) {
     rule.filterStartHz = clampDouble([dictionary[@"filterStartHz"] respondsToSelector:@selector(doubleValue)] ? [dictionary[@"filterStartHz"] doubleValue] : 20000, 20, 20000);
     rule.filterEndHz = clampDouble([dictionary[@"filterEndHz"] respondsToSelector:@selector(doubleValue)] ? [dictionary[@"filterEndHz"] doubleValue] : 20000, 20, 20000);
     rule.enabled = [dictionary[@"enabled"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"enabled"] boolValue] : NO;
+    rule.triggerMode = (SGCustomMixTriggerMode)clampInt([dictionary[@"triggerMode"] respondsToSelector:@selector(integerValue)] ? [dictionary[@"triggerMode"] integerValue] : SGCustomMixTriggerEnd, 0, 2);
+    double triggerValue = [dictionary[@"triggerValue"] respondsToSelector:@selector(doubleValue)] ? [dictionary[@"triggerValue"] doubleValue] : 0;
+    if (rule.triggerMode == SGCustomMixTriggerPercent) triggerValue = clampDouble(triggerValue, 0.0, 100.0);
+    else if (rule.triggerMode == SGCustomMixTriggerSeconds) triggerValue = clampDouble(triggerValue, 0.0, 24.0 * 60.0 * 60.0);
+    else triggerValue = 0;
+    rule.triggerValue = triggerValue;
     return rule;
 }
 

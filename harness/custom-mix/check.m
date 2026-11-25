@@ -82,6 +82,8 @@ static void testRuleRoundtrip(void) {
     rule.filterStartHz = 40;
     rule.filterEndHz = 1200;
     rule.enabled = YES;
+    rule.triggerMode = SGCustomMixTriggerPercent;
+    rule.triggerValue = 50;
     NSDictionary *dict = [rule dictionaryRepresentation];
     SGCustomMixRule *decoded = [SGCustomMixRule ruleFromDictionary:dict];
     CHECK(decoded != nil, @"decoded");
@@ -92,6 +94,39 @@ static void testRuleRoundtrip(void) {
     CHECK(decoded.curveType == SGCustomMixCurveSCurve, @"curve");
     CHECK(decoded.filterMode == SGCustomMixFilterHighPass, @"filter mode");
     CHECK(decoded.enabled == YES, @"enabled");
+    CHECK(decoded.triggerMode == SGCustomMixTriggerPercent, @"trigger mode");
+    CHECKF(decoded.triggerValue, 50.0, 0.001, @"trigger value");
+}
+
+static void testTriggerDefaultsAndClamps(void) {
+    NSDictionary *legacy = @{ @"enabled": @YES, @"durationSeconds": @8.0 };
+    SGCustomMixRule *decoded = [SGCustomMixRule ruleFromDictionary:legacy];
+    CHECK(decoded != nil, @"legacy decoded");
+    CHECK(decoded.triggerMode == SGCustomMixTriggerEnd, @"legacy trigger defaults to end");
+    CHECKF(decoded.triggerValue, 0.0, 0.001, @"legacy trigger value default");
+
+    SGCustomMixRule *percent = [SGCustomMixRule ruleFromDictionary:@{@"triggerMode": @(SGCustomMixTriggerPercent), @"triggerValue": @150}];
+    CHECK(percent.triggerMode == SGCustomMixTriggerPercent, @"percent mode");
+    CHECKF(percent.triggerValue, 100.0, 0.001, @"percent clamp");
+
+    SGCustomMixRule *seconds = [SGCustomMixRule ruleFromDictionary:@{@"triggerMode": @(SGCustomMixTriggerSeconds), @"triggerValue": @(-5)}];
+    CHECK(seconds.triggerMode == SGCustomMixTriggerSeconds, @"seconds mode");
+    CHECKF(seconds.triggerValue, 0.0, 0.001, @"seconds clamp");
+}
+
+static void testTriggerPosition(void) {
+    SGCustomMixRule *rule = [SGCustomMixRule defaultRule];
+    rule.triggerMode = SGCustomMixTriggerPercent;
+    rule.triggerValue = 50;
+    CHECKF([rule triggerPositionForTrackDuration:200.0], 100.0, 0.001, @"percent midpoint");
+
+    rule.triggerMode = SGCustomMixTriggerSeconds;
+    rule.triggerValue = 42;
+    CHECKF([rule triggerPositionForTrackDuration:200.0], 42.0, 0.001, @"seconds position");
+    CHECKF([rule triggerPositionForTrackDuration:20.0], 20.0, 0.001, @"seconds clamp to duration");
+
+    rule.triggerMode = SGCustomMixTriggerEnd;
+    CHECK([rule triggerPositionForTrackDuration:200.0] < 0, @"end has no explicit position");
 }
 
 int main(int argc, char *argv[]) {
@@ -101,6 +136,8 @@ int main(int argc, char *argv[]) {
         testBiquadStability();
         testRuleMatching();
         testRuleRoundtrip();
+        testTriggerDefaultsAndClamps();
+        testTriggerPosition();
         if (failures) {
             NSLog(@"%d failures", failures);
             return 1;
